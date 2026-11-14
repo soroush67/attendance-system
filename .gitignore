@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.pyc
+*.dat
+*.xlsx
+*.dump
+app/certs/*.crt
+*.log
+*.bak
+*.backup
+*.sql
+*.pem
+*.key
+*.p12
+*.pfx
+*.tgz
+*.zip
