@@ -1004,7 +1004,7 @@ def page(title, body, request, db, section=''):
                 ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی و Excel مدیران'),
                 ('manager_approvals', '/managers/approvals', 'بررسی درخواست‌های قدیمی'),
                 ('changes', '/changes', 'اعمال تغییرات'), ('corrections', '/corrections', 'اصلاح تردد'),
-                ('backups', '/backups', 'وضعیت بکاپ'), ('users', '/users', 'مدیریت کاربران'),
+                ('backups', '/backups', 'پشتیبان‌گیری'), ('users', '/users', 'مدیریت کاربران'),
                 ('audit', '/audit', 'تاریخچه فعالیت')]
     icons = {'dashboard': '◈', 'employees': '♙', 'imports': '⇧', 'reports': '▤', 'managers': '◷', 'managers_bulk': '▦', 'manager_approvals': '✓', 'changes': '✎', 'corrections': '◷', 'backups': '◴', 'users': '♧', 'audit': '▥'}
     links = ''.join(f'<a class="{"selected" if key == section else ""}" href="{url}" {"aria-current=page" if key == section else ""}><span class="nav-icon" aria-hidden="true">{icons[key]}</span><span>{label}</span></a>' for key, url, label in nav)
@@ -3523,7 +3523,7 @@ def backup_status_page(request: Request, db: Session = Depends(get_db)):
         '<p class="muted">بکاپ فعلی از نوع Logical Dump است؛ بازیابی لحظه‌ای (PITR) فعال نیست. '
         'نگهداری RustFS و PostgreSQL روی یک میزبان، جایگزین نسخهٔ خارج از میزبان نمی‌شود.</p></div>'
     )
-    return page('وضعیت بکاپ', body, request, db, 'backups')
+    return page('پشتیبان‌گیری', body, request, db, 'backups')
 
 
 @app.get('/users')
