@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh credential-free Attendance backup status every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=attendance-backup-status.service
+
+[Install]
+WantedBy=timers.target

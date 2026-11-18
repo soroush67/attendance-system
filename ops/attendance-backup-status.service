@@ -1,0 +1,12 @@
+[Unit]
+Description=Publish credential-free Attendance backup status
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+ExecStart=/usr/bin/python3 /opt/attendance-rustfs-backup/backup_status_publisher.py
+

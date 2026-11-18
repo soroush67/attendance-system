@@ -1,0 +1,9 @@
+# Overlay only: NEVER replace the existing production compose.app.yml.
+# Compose must be invoked with both files to preserve the read-only status mount.
+services:
+  web:
+    image: attendance-web:ui-v1.8.2
+    environment:
+      ATTENDANCE_BACKUP_STATUS_FILE: /run/attendance-backup/status.json
+    volumes:
+      - /opt/attendance-rustfs-backup/public-status:/run/attendance-backup:ro

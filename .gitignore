@@ -1,0 +1,28 @@
+
+!app/templates/manager-attendance-template.xlsx
+!tests/fixtures/manager-excel-150-valid.xlsx
+!tests/fixtures/manager-excel-duplicate.xlsx
+!tests/fixtures/manager-excel-formula.xlsx
+!tests/fixtures/manager-excel-invalid-clock.xlsx
+!tests/fixtures/manager-excel-unknown.xlsx
+# Safe, synthetic QA fixtures and the empty downloadable manager template
+# local
+# must be tracked for reproducible Jenkins builds and offline tests.
+*.backup
+*.bak
+*.dat
+*.dump
+*.key
+*.log
+*.p12
+*.pem
+*.pfx
+*.pre-*
+*.pyc
+*.sql
+*.tgz
+*.xlsx
+*.zip
+.env
+__pycache__/
+app/certs/*.crt

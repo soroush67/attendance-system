@@ -1,0 +1,53 @@
+# Data stack. Never use `down -v`. The existing attendance volumes are external.
+name: attendance
+services:
+  db:
+    image: docker-hosted.hamainsurance.net/postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-attendance}
+      POSTGRES_USER: ${POSTGRES_USER:-attendance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      TZ: Asia/Tehran
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: [no-new-privileges:true]
+    networks: [internal]
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+
+  backup:
+    image: docker-hosted.hamainsurance.net/postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGDATABASE: ${POSTGRES_DB:-attendance}
+      PGUSER: ${POSTGRES_USER:-attendance}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    volumes:
+      - backups:/backups
+      - ./ops/backup.sh:/usr/local/bin/backup.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/backup.sh"]
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+
+networks:
+  internal:
+    external: true
+    name: attendance_internal
+volumes:
+  postgres_data:
+    external: true
+    name: attendance_postgres_data
+  backups:
+    external: true
+    name: attendance_backups
