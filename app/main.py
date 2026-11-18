@@ -1004,7 +1004,7 @@ def page(title, body, request, db, section=''):
                 ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی و Excel مدیران'),
                 ('manager_approvals', '/managers/approvals', 'بررسی درخواست‌های قدیمی'),
                 ('changes', '/changes', 'اعمال تغییرات'), ('corrections', '/corrections', 'اصلاح تردد'),
-                ('backups', '/backups', 'وضعیت بکاپ'), ('users', '/users', 'مدیریت کاربران'),
+                ('backups', '/backups', 'وضعیت بکاپ'), ('users', '/users', 'مدیریت پرسنل'),
                 ('audit', '/audit', 'تاریخچه فعالیت')]
     icons = {'dashboard': '◈', 'employees': '♙', 'imports': '⇧', 'reports': '▤', 'managers': '◷', 'managers_bulk': '▦', 'manager_approvals': '✓', 'changes': '✎', 'corrections': '◷', 'backups': '◴', 'users': '♧', 'audit': '▥'}
     links = ''.join(f'<a class="{"selected" if key == section else ""}" href="{url}" {"aria-current=page" if key == section else ""}><span class="nav-icon" aria-hidden="true">{icons[key]}</span><span>{label}</span></a>' for key, url, label in nav)
@@ -3531,7 +3531,7 @@ def users_page(request: Request, db: Session = Depends(get_db)):
     permit(request, db, 'admin')
     token = csrf_token(request)
     form = (
-        '<div class="card"><h2>ایجاد کاربر سامانه</h2>'
+        '<div class="card"><h2>ایجاد پرسنل سامانه</h2>'
         '<form method="post" action="/users" autocomplete="off" class="fields">'
         '<div><label for="create-username">نام کاربری</label>'
         '<input id="create-username" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" required maxlength="80"></div>'
@@ -3546,12 +3546,12 @@ def users_page(request: Request, db: Session = Depends(get_db)):
     )
     accounts = list(db.scalars(select(User).order_by(User.id)).all())
     reset_options = (
-        '<option value="" selected disabled>لطفاً کاربر را انتخاب کنید</option>'
+        '<option value="" selected disabled>لطفاً پرسنل را انتخاب کنید</option>'
         + ''.join(f'<option value="{account.id}">{escape(account.username)} ({escape(account.role)})</option>' for account in accounts)
     )
     reset_form = (
-        '<div class="card"><h2>بازنشانی رمز عبور کاربر</h2>'
-        '<p class="muted">فقط مدیر می‌تواند رمز را بازنشانی کند. نشست‌های قبلی کاربر پس از تغییر رمز باطل می‌شوند.</p>'
+        '<div class="card"><h2>بازنشانی رمز عبور پرسنل</h2>'
+        '<p class="muted">فقط مدیر می‌تواند رمز را بازنشانی کند. نشست‌های قبلی پرسنل پس از تغییر رمز باطل می‌شوند.</p>'
         '<form method="post" action="/users/reset-password" class="fields">'
         f'<div><label for="reset-target">حساب کاربری</label><select id="reset-target" name="target_user_id" required>{reset_options}</select></div>'
         '<div><label for="reset-admin-password">رمز فعلی مدیر برای تأیید</label>'
@@ -3567,18 +3567,18 @@ def users_page(request: Request, db: Session = Depends(get_db)):
     for user in accounts:
         actions = f'<form method="post" action="/users/{user.id}/toggle"><input type="hidden" name="csrf_token" value="{token}"><button class="outline">{"غیرفعال‌سازی" if user.active else "فعال‌سازی"}</button></form>'
         rows += f'<tr><td>{escape(user.username)}</td><td>{escape(user.role)}</td><td>{"فعال" if user.active else "غیرفعال"}</td><td>{actions}</td></tr>'
-    return page('مدیریت کاربران', msg(request) + form + reset_form + f'<div class="card table-wrap"><table><tr><th>کاربر</th><th>نقش</th><th>وضعیت</th><th>عملیات</th></tr>{rows}</table></div>', request, db, 'users')
+    return page('مدیریت پرسنل', msg(request) + form + reset_form + f'<div class="card table-wrap"><table><tr><th>پرسنل</th><th>نقش</th><th>وضعیت</th><th>عملیات</th></tr>{rows}</table></div>', request, db, 'users')
 
 
 @app.post('/users')
 def create_user(request: Request, username: str = Form(), password: str = Form(), role: str = Form(), csrf_token: str = Form(), db: Session = Depends(get_db)):
     user = permit(request, db, 'admin'); csrf(request, csrf_token)
     if role not in ('admin', 'operator', 'viewer', 'exporter', 'secretary') or len(password) < 12 or not username.strip() or len(username) > 80:
-        raise HTTPException(400, 'اطلاعات کاربر نامعتبر است')
+        raise HTTPException(400, 'اطلاعات پرسنل نامعتبر است')
     if db.scalar(select(User.id).where(User.username == username.strip())):
         return redirect('/users', 'نام کاربری قبلاً ثبت شده است')
     db.add(User(username=username.strip(), password_hash=password_hash(password), role=role)); audit(db, user, 'user_create', username); db.commit()
-    return redirect('/users', 'کاربر ایجاد شد')
+    return redirect('/users', 'پرسنل ایجاد شد')
 
 
 @app.post('/users/reset-password')
@@ -3603,14 +3603,14 @@ def reset_user_password(
     if target is None:
         raise HTTPException(404, 'حساب کاربری پیدا نشد')
     if password_ok(new_password, target.password_hash):
-        return redirect('/users', 'رمز جدید نباید با رمز فعلی کاربر یکسان باشد')
+        return redirect('/users', 'رمز جدید نباید با رمز فعلی پرسنل یکسان باشد')
     target.password_hash = password_hash(new_password)
     audit(db, admin, 'user_password_reset', f'user={target.username} id={target.id}')
     db.commit()
     if target.id == admin.id:
         request.session.clear()
         return redirect('/login', 'رمز حساب شما تغییر کرد؛ دوباره وارد شوید')
-    return redirect('/users', 'رمز کاربر بازنشانی شد؛ نشست‌های قبلی او منقضی شدند')
+    return redirect('/users', 'رمز پرسنل بازنشانی شد؛ نشست‌های قبلی او منقضی شدند')
 
 
 @app.post('/users/{user_id}/toggle')
@@ -3627,4 +3627,4 @@ def toggle_user(user_id: int, request: Request, csrf_token: str = Form(), db: Se
 def audit_page(request: Request, db: Session = Depends(get_db)):
     permit(request, db, 'admin')
     rows = ''.join(f'<tr><td>{escape(x.actor)}</td><td>{escape(x.event)}</td><td>{escape(x.details)}</td><td>{escape(x.created_at.astimezone(TZ).strftime("%Y-%m-%d %H:%M"))}</td></tr>' for x in db.scalars(select(Audit).order_by(Audit.id.desc()).limit(300)).all())
-    return page('تاریخچه فعالیت', f'<div class="card table-wrap"><table><tr><th>کاربر</th><th>رویداد</th><th>جزئیات</th><th>زمان</th></tr>{rows}</table></div>', request, db, 'audit')
+    return page('تاریخچه فعالیت', f'<div class="card table-wrap"><table><tr><th>پرسنل</th><th>رویداد</th><th>جزئیات</th><th>زمان</th></tr>{rows}</table></div>', request, db, 'audit')

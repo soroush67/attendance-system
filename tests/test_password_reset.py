@@ -108,7 +108,7 @@ class AdminPasswordResetTests(unittest.TestCase):
         self.assertIn('action="/users" autocomplete="off"', html)
         self.assertIn('id="create-username" name="username" autocomplete="off"', html)
         self.assertIn('id="create-password" name="password" type="password" autocomplete="new-password"', html)
-        self.assertIn('<option value="" selected disabled>لطفاً کاربر را انتخاب کنید</option>', html)
+        self.assertIn('<option value="" selected disabled>لطفاً پرسنل را انتخاب کنید</option>', html)
         self.assertIn('id="reset-target" name="target_user_id" required', html)
 
     def test_non_admin_cannot_reset_password(self):
