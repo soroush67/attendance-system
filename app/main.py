@@ -308,7 +308,7 @@ def session_auth_tag(user: User):
     ).hexdigest()
 
 
-app = FastAPI(title='سامانه حضور و غیاب', docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title='سامانه تردد', docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(SessionMiddleware, secret_key=env('SESSION_SECRET', ''), same_site='strict', https_only=env('SESSION_HTTPS_ONLY', 'false').lower() == 'true', max_age=28800)
 # Expose only bundled, public web fonts; never mount uploads or application data.
 FONT_URL = '/assets/fonts/Vazirmatn-Variable-4e3fa217.woff2'
@@ -1014,7 +1014,7 @@ def page(title, body, request, db, section=''):
                   f'<nav aria-label="منوی موبایل">{links}</nav></details>')
     toggle = '<button type="button" class="theme-toggle" data-theme-toggle aria-label="تغییر حالت روز و شب" aria-pressed="false"><span class="theme-symbol" aria-hidden="true">☾</span><span class="theme-label">حالت شب</span></button>'
     if user:
-        layout = f'<div class="shell"><aside><div class="company-logo-wrap"><img class="company-logo" alt="بیمه سامان" src="data:image/png;base64,{COMPANY_LOGO_BASE64}"></div><div class="brand"><div class="brand-mark" aria-hidden="true">◈</div><div>سامانه حضور و غیاب<small>مدیریت هوشمند تردد · نسخه 1.8.7</small></div></div>{navigation}<div class="side-footer">سامانه مدیریت تردد پرسنل</div></aside><main><header class="top"><div><div class="eyebrow">پنل مدیریت / {escape(title)}</div><h1>{escape(title)}</h1><span class="muted">مدیریت یکپارچه حضور و غیاب پرسنل</span></div><div class="top-actions">{toggle}<span class="user-badge"><span class="avatar" aria-hidden="true">{escape(user.username[:1].upper())}</span>{escape(user.username)}</span><a class="btn outline" href="/logout">خروج</a></div></header>{body}</main></div>'
+        layout = f'<div class="shell"><aside><div class="company-logo-wrap"><img class="company-logo" alt="بیمه سامان" src="data:image/png;base64,{COMPANY_LOGO_BASE64}"></div><div class="brand"><div class="brand-mark" aria-hidden="true">◈</div><div>سامانه تردد<small>مدیریت هوشمند تردد · نسخه 1.8.7</small></div></div>{navigation}<div class="side-footer">سامانه مدیریت تردد پرسنل</div></aside><main><header class="top"><div><div class="eyebrow">پنل مدیریت / {escape(title)}</div><h1>{escape(title)}</h1><span class="muted">مدیریت یکپارچه حضور و غیاب پرسنل</span></div><div class="top-actions">{toggle}<span class="user-badge"><span class="avatar" aria-hidden="true">{escape(user.username[:1].upper())}</span>{escape(user.username)}</span><a class="btn outline" href="/logout">خروج</a></div></header>{body}</main></div>'
     else:
         layout = f'<div class="login-screen">{toggle}<div class="login-content"><div class="login-logo"><img alt="بیمه سامان" src="data:image/png;base64,{COMPANY_LOGO_BASE64}"></div>{body}</div></div>'
     layout = layout.replace('نسخه 1.8.7', 'نسخه 1.8.9-r7.4.1')
@@ -1025,7 +1025,7 @@ def page(title, body, request, db, section=''):
     if section == 'managers_bulk':
         layout += f'<script nonce="{nonce}">{MANAGER_BULK_SCRIPT}</script>'
         layout += f'<script nonce="{nonce}">{MANAGER_EXCEL_PREVIEW_SCRIPT}</script>'
-    return HTMLResponse(f'''<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive,nosnippet"><meta name="theme-color" content="#111c35"><title>{escape(title)} | سامانه حضور و غیاب</title><link rel="preload" href="{FONT_URL}" as="font" type="font/woff2" crossorigin><script nonce="{nonce}">(function(){{try{{var t=localStorage.getItem('attendance-theme');document.documentElement.setAttribute('data-theme',t==='light'||t==='dark'?t:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))}}catch(e){{document.documentElement.setAttribute('data-theme','light')}}}})();</script><style>{STYLE}</style></head><body>{layout}<script nonce="{nonce}">{THEME_SCRIPT}</script></body></html>''')
+    return HTMLResponse(f'''<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive,nosnippet"><meta name="theme-color" content="#111c35"><title>{escape(title)} | سامانه تردد</title><link rel="preload" href="{FONT_URL}" as="font" type="font/woff2" crossorigin><script nonce="{nonce}">(function(){{try{{var t=localStorage.getItem('attendance-theme');document.documentElement.setAttribute('data-theme',t==='light'||t==='dark'?t:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))}}catch(e){{document.documentElement.setAttribute('data-theme','light')}}}})();</script><style>{STYLE}</style></head><body>{layout}<script nonce="{nonce}">{THEME_SCRIPT}</script></body></html>''')
 
 
 def msg(request):

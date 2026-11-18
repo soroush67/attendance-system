@@ -56,7 +56,7 @@ html = (
     '<meta name="viewport" content="width=device-width,initial-scale=1">'
     f'<style>{style}</style></head><body>'
     '<div class="shell"><aside><div class="company-logo-wrap">لوگو</div>'
-    '<div class="brand">سامانه حضور و غیاب</div>'
+    '<div class="brand">سامانه تردد</div>'
     '<nav class="desktop-nav" aria-label="منوی اصلی">'
     + ''.join(f'<a href="#nav-{i}">بخش آزمایشی شماره {i}</a>' for i in range(12))
     + '</nav><details class="mobile-nav"><summary>☰ فهرست سامانه · گزارش تردد</summary>'
