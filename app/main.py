@@ -993,7 +993,7 @@ def page(title, body, request, db, section=''):
     token = csrf_token(request)
     nonce = secrets.token_urlsafe(24)
     request.state.csp_nonce = nonce
-    nav = [('dashboard', '/', 'نمای کلی'), ('employees', '/employees', 'کارکنان'), ('imports', '/imports', 'آپلود فایل'), ('reports', '/reports', 'گزارش تردد')]
+    nav = [('dashboard', '/', 'نمای کلی'), ('employees', '/employees', 'پرسنل'), ('imports', '/imports', 'آپلود فایل'), ('reports', '/reports', 'گزارش تردد')]
     if user and user.role == 'secretary':
         nav = []
     if user and user.role == 'secretary':
@@ -1014,7 +1014,7 @@ def page(title, body, request, db, section=''):
                   f'<nav aria-label="منوی موبایل">{links}</nav></details>')
     toggle = '<button type="button" class="theme-toggle" data-theme-toggle aria-label="تغییر حالت روز و شب" aria-pressed="false"><span class="theme-symbol" aria-hidden="true">☾</span><span class="theme-label">حالت شب</span></button>'
     if user:
-        layout = f'<div class="shell"><aside><div class="company-logo-wrap"><img class="company-logo" alt="بیمه سامان" src="data:image/png;base64,{COMPANY_LOGO_BASE64}"></div><div class="brand"><div class="brand-mark" aria-hidden="true">◈</div><div>سامانه حضور و غیاب<small>مدیریت هوشمند تردد · نسخه 1.8.7</small></div></div>{navigation}<div class="side-footer">سامانه مدیریت تردد کارکنان</div></aside><main><header class="top"><div><div class="eyebrow">پنل مدیریت / {escape(title)}</div><h1>{escape(title)}</h1><span class="muted">مدیریت یکپارچه حضور و غیاب کارکنان</span></div><div class="top-actions">{toggle}<span class="user-badge"><span class="avatar" aria-hidden="true">{escape(user.username[:1].upper())}</span>{escape(user.username)}</span><a class="btn outline" href="/logout">خروج</a></div></header>{body}</main></div>'
+        layout = f'<div class="shell"><aside><div class="company-logo-wrap"><img class="company-logo" alt="بیمه سامان" src="data:image/png;base64,{COMPANY_LOGO_BASE64}"></div><div class="brand"><div class="brand-mark" aria-hidden="true">◈</div><div>سامانه حضور و غیاب<small>مدیریت هوشمند تردد · نسخه 1.8.7</small></div></div>{navigation}<div class="side-footer">سامانه مدیریت تردد پرسنل</div></aside><main><header class="top"><div><div class="eyebrow">پنل مدیریت / {escape(title)}</div><h1>{escape(title)}</h1><span class="muted">مدیریت یکپارچه حضور و غیاب پرسنل</span></div><div class="top-actions">{toggle}<span class="user-badge"><span class="avatar" aria-hidden="true">{escape(user.username[:1].upper())}</span>{escape(user.username)}</span><a class="btn outline" href="/logout">خروج</a></div></header>{body}</main></div>'
     else:
         layout = f'<div class="login-screen">{toggle}<div class="login-content"><div class="login-logo"><img alt="بیمه سامان" src="data:image/png;base64,{COMPANY_LOGO_BASE64}"></div>{body}</div></div>'
     layout = layout.replace('نسخه 1.8.7', 'نسخه 1.8.9-r7.4.1')
@@ -1128,7 +1128,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     employees = db.scalar(select(func.count()).select_from(Employee).where(Employee.status == 'active'))
     logs = db.scalar(select(func.count()).select_from(Log))
     imports = db.scalar(select(func.count()).select_from(Import))
-    body = msg(request) + f'<div class="grid"><div class="card"><span class="muted">کارکنان فعال</span><div class="stat">{employees}</div></div><div class="card"><span class="muted">ترددهای ثبت‌شده</span><div class="stat">{logs}</div></div><div class="card"><span class="muted">فایل‌های پردازش‌شده</span><div class="stat">{imports}</div></div></div><div class="card"><h2>دسترسی سریع</h2><p class="muted">برای ثبت ترددهای جدید، فایل خروجی دستگاه را آپلود کنید؛ گزارش‌ها از اطلاعات ذخیره‌شده ساخته می‌شوند.</p><div class="actions"><a class="btn" href="/imports">آپلود فایل دستگاه</a><a class="btn outline" href="/reports">مشاهده گزارش‌ها</a></div></div>'
+    body = msg(request) + f'<div class="grid"><div class="card"><span class="muted">پرسنل فعال</span><div class="stat">{employees}</div></div><div class="card"><span class="muted">ترددهای ثبت‌شده</span><div class="stat">{logs}</div></div><div class="card"><span class="muted">فایل‌های پردازش‌شده</span><div class="stat">{imports}</div></div></div><div class="card"><h2>دسترسی سریع</h2><p class="muted">برای ثبت ترددهای جدید، فایل خروجی دستگاه را آپلود کنید؛ گزارش‌ها از اطلاعات ذخیره‌شده ساخته می‌شوند.</p><div class="actions"><a class="btn" href="/imports">آپلود فایل دستگاه</a><a class="btn outline" href="/reports">مشاهده گزارش‌ها</a></div></div>'
     return page('نمای کلی', body, request, db, 'dashboard')
 
 
@@ -1144,7 +1144,7 @@ def employees(request: Request, search: str = '', show_deleted: int = 0, db: Ses
     token = csrf_token(request)
     form = ''
     if user.role == 'admin':
-        form = f'<div class="card"><h2>تعریف کارمند جدید</h2><form class="fields" method="post" action="/employees"><div><label>نام و نام خانوادگی</label><input name="name" maxlength="200" required></div><div><label>شماره دستگاه / شناسه یکتا (برای مدیر بدون دستگاه اختیاری)</label><input name="device_id" maxlength="80" placeholder="برای مدیران می‌تواند خالی باشد"></div><div><label>گروه تردد</label><select name="attendance_group"><option value="staff">کارکنان عادی · دستگاه</option><option value="management">مدیران · ثبت دستی توسط ادمین</option></select></div><div><input type="hidden" name="csrf_token" value="{token}"><button>افزودن کارمند</button></div></form></div>'
+        form = f'<div class="card"><h2>تعریف کارمند جدید</h2><form class="fields" method="post" action="/employees"><div><label>نام و نام خانوادگی</label><input name="name" maxlength="200" required></div><div><label>شماره دستگاه / شناسه یکتا (برای مدیر بدون دستگاه اختیاری)</label><input name="device_id" maxlength="80" placeholder="برای مدیران می‌تواند خالی باشد"></div><div><label>گروه تردد</label><select name="attendance_group"><option value="staff">پرسنل عادی · دستگاه</option><option value="management">مدیران · ثبت دستی توسط ادمین</option></select></div><div><input type="hidden" name="csrf_token" value="{token}"><button>افزودن کارمند</button></div></form></div>'
     rows = ''
     status_map = {'active': 'فعال', 'suspended': 'معلق', 'deleted': 'حذف‌شده'}
     for employee in records:
@@ -1185,16 +1185,16 @@ def employees(request: Request, search: str = '', show_deleted: int = 0, db: Ses
                 f'<input type="hidden" name="csrf_token" value="{token}">'
                 f'<input type="hidden" name="expected_group" value="{escape(employee.attendance_group)}">'
                 '<label>گروه</label><select name="attendance_group">'
-                f'<option value="staff" {"selected" if employee.attendance_group == "staff" else ""}>کارکنان عادی · دستگاه</option>'
+                f'<option value="staff" {"selected" if employee.attendance_group == "staff" else ""}>پرسنل عادی · دستگاه</option>'
                 f'<option value="management" {"selected" if employee.attendance_group == "management" else ""}>مدیران · ثبت دستی</option></select>'
                 '<label>دلیل تغییر گروه</label><input name="reason" minlength="5" maxlength="500" required>'
                 '<button type="submit">ثبت گروه با تاریخچه</button></form>'
             )
-        group_label = 'مدیران · دستی' if employee.attendance_group == 'management' else 'کارکنان · دستگاه'
+        group_label = 'مدیران · دستی' if employee.attendance_group == 'management' else 'پرسنل · دستگاه'
         rows += f'<tr><td>{escape(employee.name)}</td><td dir="ltr">{escape(employee.device_id)}</td><td>{escape(group_label)}</td><td><span class="pill {"warn" if employee.status == "suspended" else "error" if employee.status == "deleted" else ""}">{status_map[employee.status]}</span></td><td class="employee-actions-cell">{actions}</td></tr>'
     checkbox = 'checked' if show_deleted == 1 else ''
-    body = msg(request) + form + f'<div class="card"><h2>فهرست کارکنان</h2><form method="get" class="actions"><input name="search" style="max-width:330px" placeholder="جست‌وجوی نام یا شماره دستگاه" value="{escape(search)}"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" name="show_deleted" value="1" {checkbox} style="width:auto">نمایش حذف‌شده‌ها</label><button>جست‌وجو</button></form><div class="table-wrap" tabindex="0" aria-label="جدول کارکنان؛ در نمایشگر کوچک به طرفین پیمایش کنید"><table class="employee-table"><thead><tr><th>نام کارمند</th><th>شناسه یکتا</th><th>گروه تردد</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{rows}</tbody></table></div></div>'
-    return page('مدیریت کارکنان', body, request, db, 'employees')
+    body = msg(request) + form + f'<div class="card"><h2>فهرست پرسنل</h2><form method="get" class="actions"><input name="search" style="max-width:330px" placeholder="جست‌وجوی نام یا شماره دستگاه" value="{escape(search)}"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" name="show_deleted" value="1" {checkbox} style="width:auto">نمایش حذف‌شده‌ها</label><button>جست‌وجو</button></form><div class="table-wrap" tabindex="0" aria-label="جدول پرسنل؛ در نمایشگر کوچک به طرفین پیمایش کنید"><table class="employee-table"><thead><tr><th>نام کارمند</th><th>شناسه یکتا</th><th>گروه تردد</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{rows}</tbody></table></div></div>'
+    return page('مدیریت پرسنل', body, request, db, 'employees')
 
 
 @app.get('/employees/{employee_id}/delete')
@@ -1231,7 +1231,7 @@ def add_employee(request: Request, name: str = Form(), device_id: str = Form(), 
         raise HTTPException(400, 'مشخصات نامعتبر است')
     if not device_id:
         if attendance_group != 'management':
-            raise HTTPException(400, 'برای کارکنان عادی شماره دستگاه لازم است')
+            raise HTTPException(400, 'برای پرسنل عادی شماره دستگاه لازم است')
         # The schema retains its stable unique device_id join key, but a
         # manager exempt from fingerprinting need not invent a device code.
         device_id = 'MANUAL-' + secrets.token_hex(8).upper()
@@ -1359,7 +1359,7 @@ def changes_page(request: Request, employee_id: int = 0, day_jalali: str = '',
         f'<div><label for="change-employee">کارمند</label><select id="change-employee" name="employee_id" required>{options}</select></div>'
         f'<div><label for="change-day">تاریخ شمسی</label><input id="change-day" name="day_jalali" value="{escape(day_jalali)}" required placeholder="۱۴۰۵/۰۸/۲۵"></div>'
         '<div><button type="submit">نمایش پرونده و اعمال تغییرات</button></div>'
-        '</form><p class="muted">حداکثر ۱۰۰ نتیجه نمایش داده می‌شود؛ برای یافتن سایر کارکنان جست‌وجو کنید.</p></div>'
+        '</form><p class="muted">حداکثر ۱۰۰ نتیجه نمایش داده می‌شود؛ برای یافتن سایر پرسنل جست‌وجو کنید.</p></div>'
     )
     if employee is None:
         rows = ''.join(
@@ -1677,7 +1677,7 @@ def commit_staged_file(db: Session, user: User, batch_id: int):
             raise HTTPException(409, f'هویت سطر {row.line_number} تغییر کرده؛ فایل نیازمند بررسی مجدد است')
         approved.append((employee.device_id, as_utc_instant(row.occurred_at)))
     if len(set(approved)) != len(approved):
-        raise HTTPException(409, 'پس از نگاشت کارکنان، تردد تکراری وجود دارد؛ تصمیم‌ها را اصلاح کنید')
+        raise HTTPException(409, 'پس از نگاشت پرسنل، تردد تکراری وجود دارد؛ تصمیم‌ها را اصلاح کنید')
     existing = {(device_id, as_utc_instant(occurred_at)) for device_id, occurred_at in db.execute(select(Log.device_id, Log.occurred_at).where(
         Log.device_id.in_({code for code, _ in approved}),
         Log.occurred_at >= min(stamp for _, stamp in approved),
@@ -1906,7 +1906,7 @@ def delete_import_confirm(import_id: int, request: Request, db: Session = Depend
         raise HTTPException(404, 'فایل موردنظر پیدا نشد')
     token = csrf_token(request)
     count = db.scalar(select(func.count()).select_from(Log).where(Log.source_import_id == import_id)) or 0
-    content = f'<div class="card"><h2>تأیید حذف گزارش</h2><p>فایل: <strong>{escape(item.filename)}</strong></p><p>تعداد ترددهای ثبت‌شده از این فایل: <strong>{count}</strong></p><p class="muted">با حذف، رکوردهای همین فایل و گزارش‌های روزانه وابسته به آن بازسازی می‌شوند. کارکنان و ترددهای سایر فایل‌ها محفوظ می‌مانند. این عملیات برگشت خودکار ندارد؛ قبل از حذف از دیتابیس بکاپ داشته باشید.</p><form method="post" action="/imports/{item.id}/delete" class="actions"><input type="hidden" name="csrf_token" value="{token}"><button style="background:#9b3d38">بله، حذف شود</button><a href="/imports" class="btn outline">انصراف</a></form></div>'
+    content = f'<div class="card"><h2>تأیید حذف گزارش</h2><p>فایل: <strong>{escape(item.filename)}</strong></p><p>تعداد ترددهای ثبت‌شده از این فایل: <strong>{count}</strong></p><p class="muted">با حذف، رکوردهای همین فایل و گزارش‌های روزانه وابسته به آن بازسازی می‌شوند. پرسنل و ترددهای سایر فایل‌ها محفوظ می‌مانند. این عملیات برگشت خودکار ندارد؛ قبل از حذف از دیتابیس بکاپ داشته باشید.</p><form method="post" action="/imports/{item.id}/delete" class="actions"><input type="hidden" name="csrf_token" value="{token}"><button style="background:#9b3d38">بله، حذف شود</button><a href="/imports" class="btn outline">انصراف</a></form></div>'
     return page('حذف گزارش', content, request, db, 'imports')
 
 
@@ -2321,7 +2321,7 @@ def managers_attendance_page(request: Request, employee_id: int = 0, day_jalali:
         '<div><button>نمایش و ثبت روز انتخابی</button></div></form></div>'
     )
     if not managers:
-        body += '<div class="card"><p class="muted">هنوز مدیر فعالی تعریف نشده است. ادمین باید در بخش کارکنان، گروه تردد فرد را «مدیران · ثبت دستی» قرار دهد.</p></div>'
+        body += '<div class="card"><p class="muted">هنوز مدیر فعالی تعریف نشده است. ادمین باید در بخش پرسنل، گروه تردد فرد را «مدیران · ثبت دستی» قرار دهد.</p></div>'
     if employee_id == 0:
         return page('ثبت تردد مدیران', body, request, db, 'managers')
     employee = eligible_manual_manager(db, employee_id)
@@ -3386,7 +3386,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
     daily_link = (f'<a class="btn outline" href="/reports?{daily_query}">ریز روزانه همین بازه</a>'
                   if period in ('monthly', 'yearly', 'cycle', 'custom') else '')
     options = '<option value="0">تمام گزارش‌های نام‌گذاری‌شده</option>' + ''.join(f'<option value="{id}" {"selected" if id == report_id else ""}>{escape(name)}</option>' for id, name in report_filters(db))
-    employee_options = '<option value="0">تمام کارکنان</option>' + ''.join(
+    employee_options = '<option value="0">تمام پرسنل</option>' + ''.join(
         f'<option value="{emp.id}" {"selected" if emp.id == employee_id else ""}>{escape(emp.name)} — {escape(emp.device_id)}</option>'
         for emp in db.scalars(select(Employee).order_by(Employee.name, Employee.id)).all()
     )
