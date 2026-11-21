@@ -3587,6 +3587,108 @@ def revoke_correction(request: Request, employee_id: int = Form(), day_jalali: s
     return changes_redirect(employee.id, day_jalali, message) if from_changes == '1' else correction_redirect(employee.id, day_jalali, message)
 
 
+@app.get('/reports/add-record')
+def add_record_page(request: Request, db: Session = Depends(get_db)):
+    permit(request, db, 'admin')
+    token = csrf_token(request)
+    today = to_jalali(datetime.now(TZ).date())
+    employees = db.scalars(select(Employee).where(Employee.status == 'active').order_by(Employee.name)).all()
+    options = '<option value="0">کارمند را انتخاب کنید</option>' + ''.join(
+        f'<option value="{emp.id}">{escape(emp.name)} — {escape(emp.device_id)}</option>'
+        for emp in employees
+    )
+    body = msg(request) + (
+        '<div class="card"><h2>افزودن رکورد تردد</h2>'
+        '<p class="muted">برای روزی که هیچ تردد دستگاهی ثبت نشده، می‌توانید ورود و خروج را مستقیماً وارد کنید. '
+        'ثبت‌ها در دیتابیس مرکزی ذخیره می‌شوند.</p>'
+        '<form method="post" action="/reports/add-record" class="fields">'
+        f'<div><label>کارمند</label><select name="employee_id" required>{options}</select></div>'
+        f'<div><label>تاریخ شمسی</label><input name="day_jalali" value="{escape(today)}" placeholder="۱۴۰۵/۰۸/۲۵" required></div>'
+        '<div><label>ساعت ورود (HH:MM)</label><input name="first_punch" placeholder="۰۸:۳۰" required></div>'
+        '<div><label>ساعت خروج (HH:MM) — اختیاری</label><input name="last_punch" placeholder="۱۷:۰۰"></div>'
+        f'<div><input type="hidden" name="csrf_token" value="{token}"><button>ثبت رکورد</button>'
+        '<a class="btn outline" href="/reports" style="margin-inline-start:10px">انصراف</a></div>'
+        '</form></div>'
+    )
+    return page('افزودن رکورد', body, request, db, 'reports')
+
+
+@app.post('/reports/add-record')
+def add_record(
+    request: Request,
+    employee_id: int = Form(),
+    day_jalali: str = Form(),
+    first_punch: str = Form(),
+    last_punch: str = Form(''),
+    csrf_token: str = Form(),
+    db: Session = Depends(get_db),
+):
+    user = permit(request, db, 'admin')
+    csrf(request, csrf_token)
+    employee = db.get(Employee, employee_id)
+    if not employee or employee.status == 'deleted':
+        raise HTTPException(404, 'کارمند یافت نشد')
+    day = correction_day(day_jalali)
+    day_str = day.isoformat()
+
+    def parse_clock(val: str):
+        val = val.strip().translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789'))
+        if not val:
+            return None
+        if not re.fullmatch(r'\d{1,2}:\d{2}(?::\d{2})?', val):
+            raise HTTPException(400, f'ساعت نامعتبر: {val}')
+        parts = [int(p) for p in val.split(':')]
+        t = time(*parts)
+        return datetime.combine(day, t, tzinfo=TZ).astimezone(timezone.utc)
+
+    t_first = parse_clock(first_punch)
+    t_last  = parse_clock(last_punch) if last_punch.strip() else None
+
+    if t_last and t_last <= t_first:
+        raise HTTPException(400, 'ساعت خروج باید بعد از ورود باشد')
+
+    punches_to_add = [t_first]
+    if t_last:
+        punches_to_add.append(t_last)
+
+    # check duplicates in DB
+    existing = {as_utc_instant(o) for o in db.scalars(
+        select(Log.occurred_at).where(
+            Log.device_id == employee.device_id,
+            Log.occurred_at.in_(punches_to_add),
+        )
+    )}
+    added = 0
+    for stamp in punches_to_add:
+        if stamp in existing:
+            continue
+        db.add(Log(device_id=employee.device_id, occurred_at=stamp, source_import_id=None))
+        db.add(ReportPunch(
+            report_id=db.scalar(
+                select(ReportSet.id).join(Import, Import.id == ReportSet.import_id)
+                .where(Import.note != 'hidden').order_by(ReportSet.id.desc()).limit(1)
+            ) or 1,
+            device_id=employee.device_id, local_day=day_str, occurred_at=stamp,
+        ))
+        added += 1
+
+    if added:
+        # ensure ReportDay exists
+        if not db.scalar(select(ReportDay.id).where(
+            ReportDay.device_id == employee.device_id, ReportDay.local_day == day_str,
+        )):
+            last_report = db.scalar(
+                select(ReportSet.id).join(Import, Import.id == ReportSet.import_id)
+                .where(Import.note != 'hidden').order_by(ReportSet.id.desc()).limit(1)
+            )
+            if last_report:
+                db.add(ReportDay(report_id=last_report, device_id=employee.device_id, local_day=day_str))
+
+    audit(db, user, 'punch_add_manual', f'employee={employee.device_id} day={day_str} punches={added}')
+    db.commit()
+    return redirect('/reports', f'رکورد {employee.name} در {day_jalali} ثبت شد ({added} ثبت اضافه شد)')
+
+
 @app.post('/reports/delete-day')
 def delete_report_day(
     request: Request,
@@ -3668,7 +3770,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
                 + f'<input type="hidden" name="employee_id" value="{emp_id}">'
                 + f'<input type="hidden" name="day_jalali" value="{escape(row[2])}">'
                 + f'<input type="hidden" name="csrf_token" value="{token}">'
-                + '<button class="correction-edit" style="color:#c0392b;background:none;border:none;cursor:pointer;padding:0;font:inherit">حذف</button>'
+                + '<button class="correction-edit" style="color:#c0392b" type="submit">حذف</button>'
                 + '</form>'
             ) if user.role == 'admin' else ''
             cells[0] = f'<td data-label="نام کارمند">{escape(row[0])}{badge}</td>'
@@ -3678,6 +3780,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
     table = ''.join(rendered_rows)
     query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali, 'period': period, 'employee_id': employee_id, 'anchor_day': anchor_day})
     download = f'<a class="btn" href="/reports/download?{query}">دانلود Excel</a>' if user.role in ('admin', 'operator', 'exporter') else ''
+    add_record_btn = '<a class="btn outline" href="/reports/add-record">افزودن رکورد</a>' if user.role == 'admin' else ''
     corrections_link = ''
     daily_query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali,
                              'period': 'daily',
@@ -3740,7 +3843,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
         'برای مرتب‌سازی چندسطحی (مثلاً ابتدا نام، سپس تاریخ و بعد نوبت)، Shift را نگه دارید و روی ستون‌های بعدی کلیک کنید. '
         'عدد کنار فلش اولویت مرتب‌سازی را نشان می‌دهد.</p>'
         '</details>'
-        f'<div class="actions">{download}{daily_link}{corrections_link}<span class="muted">{len(rows)} ردیف</span></div></div>'
+        f'<div class="actions">{download}{add_record_btn}{daily_link}<span class="muted">{len(rows)} ردیف</span></div></div>'
         '<div class="report-mobile-sort">'
         f'<div><label for="report-sort-field">مرتب‌سازی گزارش بر اساس</label><select id="report-sort-field">{mobile_sort_options}</select></div>'
         '<div><label for="report-sort-direction">جهت مرتب‌سازی</label><select id="report-sort-direction">'
