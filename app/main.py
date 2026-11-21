@@ -600,9 +600,10 @@ table{width:100%;border-collapse:separate;border-spacing:0;text-align:right}td,t
 .add-record-panel>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .add-record-panel>summary::-webkit-details-marker{display:none}
 .add-record-panel[open]>summary{margin-bottom:10px}
-.add-record-inline{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:12px}
-.add-record-inline select,.add-record-inline input{height:36px;border:1px solid var(--line-strong);border-radius:8px;padding:0 10px;background:var(--panel);color:inherit;font:inherit;font-size:13px}
-.add-record-inline button{height:36px;padding:0 16px;border-radius:8px;background:var(--primary);color:#fff;border:none;cursor:pointer;font:inherit;font-size:13px}
+.add-record-inline{display:flex;flex-wrap:nowrap;gap:8px;align-items:center;padding:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+.add-record-inline select{height:36px;border:1px solid var(--line-strong);border-radius:8px;padding:0 10px;background:var(--panel);color:inherit;font:inherit;font-size:13px;flex:1 1 180px;min-width:160px}
+.add-record-inline input{height:36px;border:1px solid var(--line-strong);border-radius:8px;padding:0 10px;background:var(--panel);color:inherit;font:inherit;font-size:13px;flex:0 0 auto}
+.add-record-inline button{height:36px;padding:0 16px;border-radius:8px;background:var(--primary);color:#fff;border:none;cursor:pointer;font:inherit;font-size:13px;flex:0 0 auto;white-space:nowrap}
 .mobile-nav{display:none}
 /* Keep the dark rail behind every link and the footer, including on long pages. */
 .shell>aside{height:auto;min-height:100vh;position:relative;align-self:stretch}
