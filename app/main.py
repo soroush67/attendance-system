@@ -596,6 +596,13 @@ table{width:100%;border-collapse:separate;border-spacing:0;text-align:right}td,t
 .report-row-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
 .correction-edit{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:6px 9px;border:1px solid var(--line-strong);border-radius:9px;background:var(--panel);font-size:11px;white-space:nowrap;text-decoration:none}
 .correction-edit:hover{background:var(--primary-soft)}
+.add-record-panel{margin-top:10px}
+.add-record-panel>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.add-record-panel>summary::-webkit-details-marker{display:none}
+.add-record-panel[open]>summary{margin-bottom:10px}
+.add-record-inline{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:12px}
+.add-record-inline select,.add-record-inline input{height:36px;border:1px solid var(--line-strong);border-radius:8px;padding:0 10px;background:var(--panel);color:inherit;font:inherit;font-size:13px}
+.add-record-inline button{height:36px;padding:0 16px;border-radius:8px;background:var(--primary);color:#fff;border:none;cursor:pointer;font:inherit;font-size:13px}
 .mobile-nav{display:none}
 /* Keep the dark rail behind every link and the footer, including on long pages. */
 .shell>aside{height:auto;min-height:100vh;position:relative;align-self:stretch}
@@ -3780,7 +3787,24 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
     table = ''.join(rendered_rows)
     query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali, 'period': period, 'employee_id': employee_id, 'anchor_day': anchor_day})
     download = f'<a class="btn" href="/reports/download?{query}">دانلود Excel</a>' if user.role in ('admin', 'operator', 'exporter') else ''
-    add_record_btn = '<a class="btn outline" href="/reports/add-record">افزودن رکورد</a>' if user.role == 'admin' else ''
+    # Build employee options for the inline add-record sub-form
+    all_employees = db.scalars(select(Employee).where(Employee.status == 'active').order_by(Employee.name)).all()
+    add_emp_opts = '<option value="0">کارمند را انتخاب کنید</option>' + ''.join(
+        f'<option value="{emp.id}">{escape(emp.name)} — {escape(emp.device_id)}</option>'
+        for emp in all_employees
+    )
+    today_j = to_jalali(datetime.now(TZ).date())
+    add_record_section = (
+        f'<details class="add-record-panel"><summary class="btn outline">افزودن رکورد</summary>'
+        f'<form method="post" action="/reports/add-record" class="add-record-inline">'
+        f'<select name="employee_id" required>{add_emp_opts}</select>'
+        f'<input name="day_jalali" value="{escape(today_j)}" placeholder="تاریخ شمسی" required style="width:120px">'
+        f'<input name="first_punch" placeholder="ورود HH:MM" required style="width:100px">'
+        f'<input name="last_punch" placeholder="خروج HH:MM" style="width:100px">'
+        f'<input type="hidden" name="csrf_token" value="{token}">'
+        f'<button type="submit">ثبت</button>'
+        f'</form></details>'
+    ) if user.role == 'admin' else ''
     corrections_link = ''
     daily_query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali,
                              'period': 'daily',
@@ -3843,7 +3867,8 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
         'برای مرتب‌سازی چندسطحی (مثلاً ابتدا نام، سپس تاریخ و بعد نوبت)، Shift را نگه دارید و روی ستون‌های بعدی کلیک کنید. '
         'عدد کنار فلش اولویت مرتب‌سازی را نشان می‌دهد.</p>'
         '</details>'
-        f'<div class="actions">{download}{add_record_btn}{daily_link}<span class="muted">{len(rows)} ردیف</span></div></div>'
+        f'<div class="actions">{download}{daily_link}<span class="muted">{len(rows)} ردیف</span></div>'
+        f'{add_record_section}</div>'
         '<div class="report-mobile-sort">'
         f'<div><label for="report-sort-field">مرتب‌سازی گزارش بر اساس</label><select id="report-sort-field">{mobile_sort_options}</select></div>'
         '<div><label for="report-sort-direction">جهت مرتب‌سازی</label><select id="report-sort-direction">'
