@@ -1533,22 +1533,18 @@ def parse_device_file(data: bytes):
     return result, failures
 
 
-def stage_dat_file(db: Session, user: User, *, report_name: str, filename: str, data: bytes):
+def stage_dat_file(db: Session, user: User, *, filename: str, data: bytes):
     """Stage, never import. Preserve line provenance and flag ALL discrepancies.
 
     No report, accepted punch or daily rollup changes before commit.
+    Report name is auto-generated from filename + timestamp + random suffix.
     """
-    report_name = ' '.join(report_name.strip().split())
-    if not report_name or len(report_name) > 120:
-        raise HTTPException(400, 'نام گزارش باید بین ۱ تا ۱۲۰ نویسه باشد')
     if not filename.lower().endswith(('.dat', '.txt')):
         raise HTTPException(400, 'پسوند فایل تردد مجاز نیست')
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(413, 'حداکثر حجم فایل ۱۰ مگابایت است')
-    if db.scalar(select(ReportSet.id).where(ReportSet.name == report_name)) or db.scalar(
-        select(PendingImport.id).where(PendingImport.report_name == report_name, PendingImport.status == 'pending')
-    ):
-        raise HTTPException(409, 'نام گزارش قبلاً استفاده شده یا در انتظار تأیید است')
+    stem = Path(filename).stem[:50]
+    report_name = f'{stem}_{datetime.now(TZ).strftime("%Y%m%d_%H%M%S")}_{secrets.token_hex(3)}'
     for encoding in ('utf-8-sig', 'utf-16', 'cp1256'):
         try:
             content = data.decode(encoding)
@@ -1600,7 +1596,7 @@ def stage_dat_file(db: Session, user: User, *, report_name: str, filename: str, 
             Log.occurred_at <= max(timestamps))).all()}
     batch = PendingImport(
         report_name=report_name, filename=Path(filename).name[:255],
-        digest=hashlib.sha256(data + b'\x00' + report_name.encode('utf-8')).hexdigest(),
+        digest=hashlib.sha256(data).hexdigest(),
         uploader_id=user.id, status='pending',
     )
     db.add(batch)
@@ -1863,7 +1859,7 @@ def cancel_staged_post(batch_id: int, request: Request, csrf_token: str = Form()
 def imports_page(request: Request, db: Session = Depends(get_db)):
     user = permit(request, db, 'admin', 'operator', 'viewer', 'exporter')
     token = csrf_token(request)
-    upload = f'<div class="card"><h2>بارگذاری فایل دستگاه</h2><p class="muted">فایل ابتدا فقط در صف بررسی ثبت می‌شود؛ اگر مغایرت داشته باشد، مدیر در صفحهٔ جدا رفع مغایرت می‌کند. هیچ گزارشی قبل از تأیید نهایی تغییر نمی‌کند.</p><form method="post" enctype="multipart/form-data" action="/imports"><div class="fields"><div><label>نام گزارش</label><input name="report_name" maxlength="120" placeholder="مثلاً حضور آبان ۱۴۰۵" required></div><div><label>فایل تردد دستگاه</label><input type="file" name="file" accept=".dat,.txt" required></div><div><input type="hidden" name="csrf_token" value="{token}"><button>بارگذاری و بررسی مغایرت‌ها</button></div></div></form></div>' if user.role in ('admin', 'operator') else ''
+    upload = f'<div class="card"><h2>بارگذاری فایل دستگاه</h2><p class="muted">فایل ابتدا فقط در صف بررسی ثبت می‌شود؛ اگر مغایرت داشته باشد، مدیر در صفحهٔ جدا رفع مغایرت می‌کند. هیچ گزارشی قبل از تأیید نهایی تغییر نمی‌کند.</p><form method="post" enctype="multipart/form-data" action="/imports"><div class="fields"><div><label>فایل تردد دستگاه</label><input type="file" name="file" accept=".dat,.txt" required></div><div><input type="hidden" name="csrf_token" value="{token}"><button>بارگذاری و بررسی مغایرت‌ها</button></div></div></form></div>' if user.role in ('admin', 'operator') else ''
     pending_html = ''
     if user.role in ('admin', 'operator'):
         pending_rows = ''
@@ -1951,12 +1947,12 @@ def delete_import(import_id: int, request: Request, csrf_token: str = Form(), db
 
 
 @app.post('/imports')
-async def upload(request: Request, file: UploadFile = File(), report_name: str = Form(), csrf_token: str = Form(), db: Session = Depends(get_db)):
+async def upload(request: Request, file: UploadFile = File(), csrf_token: str = Form(), db: Session = Depends(get_db)):
     user = permit(request, db, 'admin', 'operator')
     csrf(request, csrf_token)
     filename = Path(file.filename or '').name[:255]
     data = await file.read(10 * 1024 * 1024 + 1)
-    batch = stage_dat_file(db, user, report_name=report_name, filename=filename, data=data)
+    batch = stage_dat_file(db, user, filename=filename, data=data)
     return RedirectResponse(f'/imports/staged/{batch.id}', status_code=303)
 
 
@@ -3566,7 +3562,17 @@ def users_page(request: Request, db: Session = Depends(get_db)):
     for user in accounts:
         actions = f'<form method="post" action="/users/{user.id}/toggle"><input type="hidden" name="csrf_token" value="{token}"><button class="outline">{"غیرفعال‌سازی" if user.active else "فعال‌سازی"}</button></form>'
         rows += f'<tr><td>{escape(user.username)}</td><td>{escape(user.role)}</td><td>{"فعال" if user.active else "غیرفعال"}</td><td>{actions}</td></tr>'
-    return page('مدیریت کاربران', msg(request) + form + reset_form + f'<div class="card table-wrap"><table><tr><th>کاربر</th><th>نقش</th><th>وضعیت</th><th>عملیات</th></tr>{rows}</table></div>', request, db, 'users')
+    bulk_form = (
+        '<div class="card"><h2>بارگذاری گروهی کاربران از Excel</h2>'
+        '<p class="muted">فایل را بر اساس قالب استاندارد تهیه کنید. ستون‌های الزامی: نام کاربری، گذرواژه (حداقل ۱۲ نویسه)، نقش.</p>'
+        '<p><a class="btn outline" href="/users/template">دانلود قالب Excel</a></p>'
+        '<form method="post" enctype="multipart/form-data" action="/users/bulk" class="fields">'
+        '<div><label>فایل Excel کاربران (.xlsx)</label>'
+        '<input type="file" name="file" accept=".xlsx" required></div>'
+        f'<div><input type="hidden" name="csrf_token" value="{token}"><button>بارگذاری و ایجاد کاربران</button></div>'
+        '</form></div>'
+    )
+    return page('مدیریت کاربران', msg(request) + form + bulk_form + reset_form + f'<div class="card table-wrap"><table><tr><th>کاربر</th><th>نقش</th><th>وضعیت</th><th>عملیات</th></tr>{rows}</table></div>', request, db, 'users')
 
 
 @app.post('/users')
@@ -3620,6 +3626,142 @@ def toggle_user(user_id: int, request: Request, csrf_token: str = Form(), db: Se
     if target.id == actor_user.id: return redirect('/users', 'امکان غیرفعال‌سازی حساب خودتان وجود ندارد')
     target.active = not target.active; audit(db, actor_user, 'user_toggle', target.username); db.commit()
     return redirect('/users', 'وضعیت حساب تغییر کرد')
+
+
+# ─── Excel template generator ──────────────────────────────────────────────
+
+def _make_user_template() -> bytes:
+    """Generate a fresh xlsx template for bulk user import."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'کاربران'
+    ws.sheet_view.rightToLeft = True
+
+    headers = [('نام کاربری', 25), ('گذرواژه', 25), ('نقش', 20)]
+    for col, (h, width) in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True, color='FFFFFF', name='Calibri')
+        cell.fill = PatternFill('solid', fgColor='1E3A5F')
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        ws.column_dimensions[chr(64 + col)].width = width
+
+    dv = DataValidation(type='list',
+                        formula1='"viewer,exporter,operator,secretary,admin"',
+                        allow_blank=False, showDropDown=False)
+    ws.add_data_validation(dv)
+    dv.sqref = 'C2:C10000'
+
+    examples = [
+        ('ahmad.karimi',    'P@ss1234567890', 'viewer'),
+        ('sara.mohammadi',  'SecurePass!123', 'operator'),
+    ]
+    for row_idx, (u, p, r) in enumerate(examples, 2):
+        ws.cell(row=row_idx, column=1, value=u)
+        ws.cell(row=row_idx, column=2, value=p)
+        ws.cell(row=row_idx, column=3, value=r)
+
+    ns = wb.create_sheet('راهنما')
+    ns.sheet_view.rightToLeft = True
+    ns.column_dimensions['A'].width = 20
+    ns.column_dimensions['B'].width = 45
+    guide = [
+        ('ستون',      'توضیح'),
+        ('نام کاربری', 'الزامی · حداکثر ۸۰ نویسه · بدون فاصله'),
+        ('گذرواژه',   'الزامی · حداقل ۱۲ نویسه'),
+        ('نقش',       'مقدار از لیست زیر انتخاب شود'),
+        ('', ''),
+        ('viewer',    'فقط مشاهده'),
+        ('exporter',  'مشاهده و دانلود'),
+        ('operator',  'آپلود و دانلود'),
+        ('secretary', 'منشی · فرایند ثبت مدیران'),
+        ('admin',     'مدیر سیستم / ادمین'),
+    ]
+    for r, (a, b) in enumerate(guide, 1):
+        ns.cell(row=r, column=1, value=a)
+        ns.cell(row=r, column=2, value=b)
+        if r == 1:
+            for c in (1, 2):
+                cell = ns.cell(row=1, column=c)
+                cell.font = Font(bold=True)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@app.get('/users/template')
+def users_template(request: Request, db: Session = Depends(get_db)):
+    permit(request, db, 'admin')
+    data = _make_user_template()
+    return Response(
+        content=data,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename="users-template.xlsx"'},
+    )
+
+
+@app.post('/users/bulk')
+async def users_bulk(
+    request: Request,
+    file: UploadFile = File(),
+    csrf_token: str = Form(),
+    db: Session = Depends(get_db),
+):
+    import io as _io
+    from openpyxl import load_workbook as _load_workbook
+
+    admin = permit(request, db, 'admin')
+    csrf(request, csrf_token)
+    if not (file.filename or '').lower().endswith('.xlsx'):
+        return redirect('/users', 'فقط فایل xlsx مجاز است')
+    data = await file.read(2 * 1024 * 1024 + 1)
+    if len(data) > 2 * 1024 * 1024:
+        return redirect('/users', 'حجم فایل بیش از ۲ مگابایت است')
+    try:
+        wb = _load_workbook(_io.BytesIO(data), read_only=True, data_only=True)
+        ws = wb.active
+    except Exception:
+        return redirect('/users', 'فایل xlsx نامعتبر یا خراب است')
+
+    VALID_ROLES = {'admin', 'operator', 'viewer', 'exporter', 'secretary'}
+    created = skipped = 0
+    error_parts: list[str] = []
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
+        if not row or not any(c for c in row if c not in ('', None)):
+            continue
+        username = str(row[0]).strip() if row[0] not in ('', None) else ''
+        password = str(row[1]).strip() if len(row) > 1 and row[1] not in ('', None) else ''
+        role = str(row[2]).strip().lower() if len(row) > 2 and row[2] not in ('', None) else 'viewer'
+
+        if not username or len(username) > 80 or ' ' in username:
+            error_parts.append(f'سطر {row_idx}: نام کاربری نامعتبر')
+            continue
+        if len(password) < 12:
+            error_parts.append(f'سطر {row_idx}: گذرواژه کمتر از ۱۲ نویسه')
+            continue
+        if role not in VALID_ROLES:
+            error_parts.append(f'سطر {row_idx}: نقش «{role}» نامعتبر')
+            continue
+        if db.scalar(select(User.id).where(User.username == username)):
+            skipped += 1
+            continue
+        db.add(User(username=username, password_hash=password_hash(password), role=role))
+        audit(db, admin, 'user_create', f'{username} (bulk)')
+        created += 1
+
+    db.commit()
+    parts = [f'{created} کاربر ایجاد شد']
+    if skipped:
+        parts.append(f'{skipped} تکراری نادیده گرفته شد')
+    if error_parts:
+        parts.append(f'{len(error_parts)} خطا: ' + ' | '.join(error_parts[:4]))
+    return redirect('/users', ' · '.join(parts))
 
 
 @app.get('/audit')
