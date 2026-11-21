@@ -3616,9 +3616,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
                      if correction.origin == 'manager_manual' else
                      '<span class="correction-tag" title="ساعت مؤثر توسط مدیر اصلاح شده؛ تعداد ثبت دستگاه جداگانه محاسبه می‌شود">✎ اصلاح مدیر</span>')
                      if correction and correction.action == 'set' else '')
-            edit = ('<a class="correction-edit" href="/changes?' + urlencode({
-                'employee_id': emp_id, 'day_jalali': row[2],
-            }) + '">اعمال تغییرات</a><a class="correction-edit" href="/corrections?' + urlencode({
+            edit = ('<a class="correction-edit" href="/corrections?' + urlencode({
                 'employee_id': emp_id, 'day_jalali': row[2],
             }) + '">اصلاح تردد</a>') if user.role == 'admin' else ''
             cells[0] = f'<td data-label="نام کارمند">{escape(row[0])}{badge}</td>'
