@@ -3652,12 +3652,12 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
                 cells.append(f'<td data-label="عملیات" class="report-actions-cell"><div class="report-row-actions">{edit}</div></td>')
         rendered_rows.append('<tr>' + ''.join(cells) + '</tr>')
     table = ''.join(rendered_rows)
-    query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali, 'report_id': report_id, 'period': period, 'employee_id': employee_id, 'anchor_day': anchor_day})
+    query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali, 'period': period, 'employee_id': employee_id, 'anchor_day': anchor_day})
     download = f'<a class="btn" href="/reports/download?{query}">دانلود Excel</a>' if user.role in ('admin', 'operator', 'exporter') else ''
     corrections_link = ('<a class="btn outline" href="/changes">میزکار اعمال تغییرات</a>'
                         '<a class="btn outline" href="/corrections">اصلاح دستی ورود/خروج</a>') if user.role == 'admin' else ''
     daily_query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali,
-                             'report_id': report_id, 'period': 'daily',
+                             'period': 'daily',
                              'employee_id': employee_id, 'anchor_day': anchor_day})
     daily_link = (f'<a class="btn outline" href="/reports?{daily_query}">ریز روزانه همین بازه</a>'
                   if period in ('monthly', 'yearly', 'cycle', 'custom') else '')
@@ -3694,14 +3694,13 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
         f'<div><label>از تاریخ شمسی</label><input name="start_jalali" value="{escape(start_jalali)}" placeholder="۱۴۰۵/۰۸/۰۱" required></div>'
         f'<div><label>تا تاریخ شمسی</label><input name="end_jalali" value="{escape(end_jalali)}" placeholder="۱۴۰۵/۰۸/۳۰" required></div>'
         f'<div><label>نام کارمند</label><select name="employee_id">{employee_options}</select></div>'
-        f'<div><label>نام گزارش</label><select name="report_id">{options}</select></div>'
         f'<div><label>شیوه محاسبه</label><select name="period">{periods}</select></div>'
         f'<div><label>روز شروع دوره شناور (۱ تا ۲۸)</label><input type="number" min="1" max="28" name="anchor_day" value="{anchor_day}" required></div>'
         '<div><button>نمایش گزارش</button></div></div></form>'
         '<p class="report-caution">زمان‌های این گزارش فاصلهٔ ثبت‌های مشاهده‌شده یا اصلاح‌شده هستند؛ '
         'به‌تنهایی کارکرد تأییدشدهٔ حقوق‌ودستمزد محسوب نمی‌شوند.</p>'
         '<details class="report-methodology"><summary>راهنمای محاسبه و نکات مهم گزارش</summary>'
-        '<p class="muted">فیلتر تاریخ، کارمند، نام گزارش و شیوه محاسبه مستقل‌اند و هم‌زمان اعمال می‌شوند. '
+        '<p class="muted">فیلتر تاریخ، کارمند و شیوه محاسبه مستقل‌اند و هم‌زمان اعمال می‌شوند. '
         'در دوره شناور با روز شروع ۲۰، هر دوره از روز ۲۰ ماه قبل تا پایان روز ۱۹ ماه جاری محاسبه می‌شود تا هیچ روزی در دو دوره نیفتد. '
         'در حالت «تمام گزارش‌ها»، روز و ساعتِ ثبت‌شدهٔ تکراری در فایل‌های مختلف فقط یک بار محاسبه می‌شود. '
         'در محاسبه روزانه، فاصله اولین تا آخرین ثبت همان روز در ساعت محلی تهران محاسبه می‌شود؛ '
