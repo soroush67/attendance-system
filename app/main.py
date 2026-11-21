@@ -2126,7 +2126,7 @@ async def import_direct(
         select(Employee).where(Employee.status != 'deleted')
     )}
 
-    skipped_format = skipped_unknown = skipped_dup_file = 0
+    skipped_format = skipped_unknown = skipped_dup_file = auto_created = 0
     valid: list[tuple[str, datetime]] = []
     seen: set[tuple[str, datetime]] = set()
 
@@ -2145,8 +2145,15 @@ async def import_direct(
             skipped_format += 1
             continue
         if code not in employees:
-            skipped_unknown += 1
-            continue
+            placeholder = Employee(
+                name=f'ناشناس — {code}',
+                device_id=code,
+                attendance_group='staff',
+            )
+            db.add(placeholder)
+            db.flush()
+            employees[code] = placeholder
+            auto_created += 1
         if (code, stamp) in seen:
             skipped_dup_file += 1
             continue
@@ -2154,7 +2161,7 @@ async def import_direct(
         valid.append((code, stamp))
 
     if not valid:
-        return redirect('/imports', 'هیچ تردد معتبری با کد پرسنلی شناخته‌شده در فایل یافت نشد')
+        return redirect('/imports', 'هیچ تردد معتبری در فایل یافت نشد')
 
     # check DB duplicates
     codes = {c for c, _ in valid}
@@ -2205,15 +2212,15 @@ async def import_direct(
         accepted += 1
 
     upload_rec.accepted = accepted
-    upload_rec.rejected = skipped_format + skipped_unknown
-    audit(db, user, 'file_import_direct', f'{filename} accepted={accepted}')
+    upload_rec.rejected = skipped_format
+    audit(db, user, 'file_import_direct', f'{filename} accepted={accepted} auto_created={auto_created}')
     db.commit()
 
     parts = [f'{accepted} تردد وارد شد']
     if skipped_dup_db + skipped_dup_file:
         parts.append(f'{skipped_dup_db + skipped_dup_file} تکراری نادیده گرفته شد')
-    if skipped_unknown:
-        parts.append(f'{skipped_unknown} کد ناشناس')
+    if auto_created:
+        parts.append(f'{auto_created} پرسنل موقت ایجاد شد')
     if skipped_format:
         parts.append(f'{skipped_format} سطر نامعتبر')
     return redirect('/imports', ' · '.join(parts))
