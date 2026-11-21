@@ -993,16 +993,18 @@ def page(title, body, request, db, section=''):
     token = csrf_token(request)
     nonce = secrets.token_urlsafe(24)
     request.state.csp_nonce = nonce
-    nav = [('dashboard', '/', 'نمای کلی'), ('employees', '/employees', 'مدیریت پرسنل'), ('imports', '/imports', 'بارگذاری فایل'), ('reports', '/reports', 'مدیریت تردد')]
-    if user and user.role == 'secretary':
-        nav = []
+    nav = [('dashboard', '/', 'نمای کلی')]
     if user and user.role == 'secretary':
         nav += [('managers', '/managers/attendance', 'ثبت تردد مدیران'),
                 ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی مدیران')]
     if user and user.role == 'admin':
-        nav += [('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی'),
-                ('backups', '/backups', 'پشتیبان‌گیری'), ('users', '/users', 'مدیریت کاربران'),
-                ('audit', '/audit', 'تاریخچه فعالیت')]
+        nav += [('reports', '/reports', 'مدیریت تردد'),
+                ('imports', '/imports', 'بارگذاری فایل'),
+                ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی'),
+                ('employees', '/employees', 'مدیریت پرسنل'),
+                ('users', '/users', 'مدیریت کاربران'),
+                ('backups', '/backups', 'پشتیبان‌گیری'),
+                ('audit', '/audit', 'تاریخچه تغییرات')]
     icons = {'dashboard': '◈', 'employees': '♙', 'imports': '⇧', 'reports': '▤', 'managers': '◷', 'managers_bulk': '▦', 'manager_approvals': '✓', 'changes': '✎', 'corrections': '◷', 'backups': '◴', 'users': '♧', 'audit': '▥'}
     links = ''.join(f'<a class="{"selected" if key == section else ""}" href="{url}" {"aria-current=page" if key == section else ""}><span class="nav-icon" aria-hidden="true">{icons[key]}</span><span>{label}</span></a>' for key, url, label in nav)
     current_nav_label = next((label for key, _, label in nav if key == section), title)
