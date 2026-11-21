@@ -2022,28 +2022,8 @@ def cancel_staged_post(batch_id: int, request: Request, csrf_token: str = Form()
 def imports_page(request: Request, db: Session = Depends(get_db)):
     user = permit(request, db, 'admin', 'operator', 'viewer', 'exporter')
     token = csrf_token(request)
-    upload = f'<div class="card"><h2>بارگذاری فایل دستگاه</h2><p class="muted">فایل ابتدا فقط در صف بررسی ثبت می‌شود؛ اگر مغایرت داشته باشد، مدیر در صفحهٔ جدا رفع مغایرت می‌کند. هیچ گزارشی قبل از تأیید نهایی تغییر نمی‌کند.</p><form method="post" enctype="multipart/form-data" action="/imports"><div class="fields"><div><label>فایل تردد دستگاه</label><input type="file" name="file" accept=".dat,.txt" required></div><div><input type="hidden" name="csrf_token" value="{token}"><button>بارگذاری و بررسی مغایرت‌ها</button></div></div></form></div>' if user.role in ('admin', 'operator') else ''
+    upload = f'<div class="card"><h2>بارگذاری فایل دستگاه</h2><p class="muted">فایل تردد دستگاه را انتخاب کنید. ترددهای معتبر مستقیماً وارد دیتابیس می‌شوند. کدهای ناشناس یا تکراری نادیده گرفته می‌شوند.</p><form method="post" enctype="multipart/form-data" action="/imports/direct"><div class="fields"><div><label>فایل تردد دستگاه (.dat یا .txt)</label><input type="file" name="file" accept=".dat,.txt" required></div><div><input type="hidden" name="csrf_token" value="{token}"><button>بارگذاری و ثبت در دیتابیس</button></div></div></form></div>' if user.role in ('admin', 'operator') else ''
     pending_html = ''
-    if user.role in ('admin', 'operator'):
-        pending_rows = ''
-        batches = db.scalars(select(PendingImport).order_by(PendingImport.id.desc()).limit(100)).all()
-        for batch in batches:
-            total = db.scalar(select(func.count()).select_from(PendingImportRow).where(
-                PendingImportRow.pending_import_id == batch.id)) or 0
-            unresolved = db.scalar(select(func.count()).select_from(PendingImportRow).where(
-                PendingImportRow.pending_import_id == batch.id,
-                PendingImportRow.decision == 'pending')) or 0
-            pending_rows += (
-                f'<tr><td>{escape(batch.report_name)}</td><td>{escape(batch.filename)}</td>'
-                f'<td>{escape(batch.status)}</td><td>{total}</td><td>{unresolved}</td>'
-                f'<td><a class="btn outline" href="/imports/staged/{batch.id}">بررسی جزئیات</a></td></tr>'
-            )
-        pending_html = (
-            '<div class="card"><h2>فایل‌های در انتظار بررسی و سوابق تصمیم‌ها</h2>'
-            '<div class="table-wrap"><table><tr><th>نام گزارش</th><th>نام فایل</th>'
-            '<th>وضعیت</th><th>سطرها</th><th>مغایرت حل‌نشده</th><th>عملیات</th></tr>'
-            f'{pending_rows}</table></div></div>'
-        )
     records = db.scalars(select(Import).order_by(Import.id.desc()).limit(100)).all()
     rows = ''
     for item in records:
@@ -2111,12 +2091,150 @@ def delete_import(import_id: int, request: Request, csrf_token: str = Form(), db
 
 @app.post('/imports')
 async def upload(request: Request, file: UploadFile = File(), csrf_token: str = Form(), db: Session = Depends(get_db)):
+    """Legacy staged upload — kept for backward compatibility."""
     user = permit(request, db, 'admin', 'operator')
     csrf(request, csrf_token)
     filename = Path(file.filename or '').name[:255]
     data = await file.read(10 * 1024 * 1024 + 1)
     batch = stage_dat_file(db, user, filename=filename, data=data)
     return RedirectResponse(f'/imports/staged/{batch.id}', status_code=303)
+
+
+@app.post('/imports/direct')
+async def import_direct(
+    request: Request,
+    file: UploadFile = File(),
+    csrf_token: str = Form(),
+    db: Session = Depends(get_db),
+):
+    """Direct import: parse DAT and write to DB in one step, no staging/review."""
+    user = permit(request, db, 'admin', 'operator')
+    csrf(request, csrf_token)
+
+    filename = Path(file.filename or '').name[:255]
+    data = await file.read(10 * 1024 * 1024 + 1)
+
+    if not filename.lower().endswith(('.dat', '.txt')):
+        return redirect('/imports', 'پسوند فایل تردد مجاز نیست (.dat یا .txt)')
+    if len(data) > 10 * 1024 * 1024:
+        return redirect('/imports', 'حداکثر حجم فایل ۱۰ مگابایت است')
+
+    digest = hashlib.sha256(data).hexdigest()
+    if db.scalar(select(Import.id).where(Import.digest == digest)):
+        return redirect('/imports', 'این فایل قبلاً وارد سیستم شده است')
+
+    # decode
+    for encoding in ('utf-8-sig', 'utf-16', 'cp1256'):
+        try:
+            content = data.decode(encoding)
+            if '\x00' not in content:
+                break
+        except UnicodeDecodeError:
+            pass
+    else:
+        return redirect('/imports', 'کدگذاری فایل قابل شناسایی نیست')
+
+    lines = [(n, ln) for n, ln in enumerate(content.splitlines(), 1) if ln.strip()]
+    if not lines:
+        return redirect('/imports', 'فایل تردد خالی است')
+    if len(lines) > 20000 or any(len(ln) > 2048 for _, ln in lines):
+        return redirect('/imports', 'فایل بیش از حد بزرگ است')
+
+    employees = {e.device_id: e for e in db.scalars(
+        select(Employee).where(Employee.status != 'deleted')
+    )}
+
+    skipped_format = skipped_unknown = skipped_dup_file = 0
+    valid: list[tuple[str, datetime]] = []
+    seen: set[tuple[str, datetime]] = set()
+
+    for _n, raw in lines:
+        fields = [c.strip() for c in raw.split('\t')]
+        if (len(fields) != 6 or any(not f for f in fields)
+                or not re.fullmatch(r'[0-9]{1,80}', fields[0])
+                or not all(re.fullmatch(r'[0-9]+', c) for c in fields[2:])):
+            skipped_format += 1
+            continue
+        code = fields[0]
+        try:
+            stamp = datetime.strptime(fields[1], '%Y-%m-%d %H:%M:%S').replace(
+                tzinfo=TZ).astimezone(timezone.utc)
+        except ValueError:
+            skipped_format += 1
+            continue
+        if code not in employees:
+            skipped_unknown += 1
+            continue
+        if (code, stamp) in seen:
+            skipped_dup_file += 1
+            continue
+        seen.add((code, stamp))
+        valid.append((code, stamp))
+
+    if not valid:
+        return redirect('/imports', 'هیچ تردد معتبری با کد پرسنلی شناخته‌شده در فایل یافت نشد')
+
+    # check DB duplicates
+    codes = {c for c, _ in valid}
+    min_t, max_t = min(s for _, s in valid), max(s for _, s in valid)
+    existing = {
+        (d, as_utc_instant(o))
+        for d, o in db.execute(
+            select(Log.device_id, Log.occurred_at).where(
+                Log.device_id.in_(codes),
+                Log.occurred_at >= min_t,
+                Log.occurred_at <= max_t,
+            )
+        ).all()
+    }
+
+    # create Import record
+    upload_rec = Import(
+        filename=filename,
+        digest=digest,
+        uploader_id=user.id,
+        note='بارگذاری مستقیم',
+    )
+    db.add(upload_rec)
+    db.flush()
+
+    stem = Path(filename).stem[:50]
+    report_name = f'{stem}_{datetime.now(TZ).strftime("%Y%m%d_%H%M%S")}_{secrets.token_hex(3)}'
+    report = ReportSet(import_id=upload_rec.id, name=report_name)
+    db.add(report)
+    db.flush()
+
+    accepted = skipped_dup_db = 0
+    days_seen: set[tuple[str, str]] = set()
+
+    for code, stamp in valid:
+        if (code, stamp) in existing:
+            skipped_dup_db += 1
+            continue
+        local_day = stamp.astimezone(TZ).date().isoformat()
+        db.add(Log(device_id=code, occurred_at=stamp, source_import_id=upload_rec.id))
+        db.add(ReportPunch(
+            report_id=report.id, device_id=code,
+            local_day=local_day, occurred_at=stamp,
+        ))
+        if (code, local_day) not in days_seen:
+            db.add(ReportDay(report_id=report.id, device_id=code, local_day=local_day))
+            days_seen.add((code, local_day))
+        accepted += 1
+
+    upload_rec.accepted = accepted
+    upload_rec.rejected = skipped_format + skipped_unknown
+    audit(db, user, 'file_import_direct', f'{filename} accepted={accepted}')
+    db.commit()
+
+    parts = [f'{accepted} تردد وارد شد']
+    if skipped_dup_db + skipped_dup_file:
+        parts.append(f'{skipped_dup_db + skipped_dup_file} تکراری نادیده گرفته شد')
+    if skipped_unknown:
+        parts.append(f'{skipped_unknown} کد ناشناس')
+    if skipped_format:
+        parts.append(f'{skipped_format} سطر نامعتبر')
+    return redirect('/imports', ' · '.join(parts))
 
 
 def jalali(value):
