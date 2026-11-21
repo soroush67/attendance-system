@@ -993,7 +993,7 @@ def page(title, body, request, db, section=''):
     token = csrf_token(request)
     nonce = secrets.token_urlsafe(24)
     request.state.csp_nonce = nonce
-    nav = [('dashboard', '/', 'نمای کلی'), ('employees', '/employees', 'پرسنل'), ('imports', '/imports', 'آپلود فایل'), ('reports', '/reports', 'گزارش تردد')]
+    nav = [('dashboard', '/', 'نمای کلی'), ('employees', '/employees', 'مدیریت پرسنل'), ('imports', '/imports', 'بارگذاری فایل'), ('reports', '/reports', 'مدیریت تردد')]
     if user and user.role == 'secretary':
         nav = []
     if user and user.role == 'secretary':
@@ -1001,7 +1001,7 @@ def page(title, body, request, db, section=''):
                 ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی مدیران')]
     if user and user.role == 'admin':
         nav += [('managers', '/managers/attendance', 'ثبت مستقیم تردد مدیران'),
-                ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی و Excel مدیران'),
+                ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی'),
                 ('manager_approvals', '/managers/approvals', 'بررسی درخواست‌های قدیمی'),
                 ('changes', '/changes', 'اعمال تغییرات'), ('corrections', '/corrections', 'اصلاح تردد'),
                 ('backups', '/backups', 'پشتیبان‌گیری'), ('users', '/users', 'مدیریت کاربران'),
