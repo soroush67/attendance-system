@@ -2024,7 +2024,7 @@ def imports_page(request: Request, db: Session = Depends(get_db)):
     token = csrf_token(request)
     upload = f'<div class="card"><h2>بارگذاری فایل دستگاه</h2><p class="muted">فایل تردد دستگاه را انتخاب کنید. ترددهای معتبر مستقیماً وارد دیتابیس می‌شوند. کدهای ناشناس یا تکراری نادیده گرفته می‌شوند.</p><form method="post" enctype="multipart/form-data" action="/imports/direct"><div class="fields"><div><label>فایل تردد دستگاه (.dat یا .txt)</label><input type="file" name="file" accept=".dat,.txt" required></div><div><input type="hidden" name="csrf_token" value="{token}"><button>بارگذاری و ثبت در دیتابیس</button></div></div></form></div>' if user.role in ('admin', 'operator') else ''
     pending_html = ''
-    records = db.scalars(select(Import).order_by(Import.id.desc()).limit(100)).all()
+    records = db.scalars(select(Import).where(Import.note != 'hidden').order_by(Import.id.desc()).limit(100)).all()
     rows = ''
     for item in records:
         delete_button = f'<a class="btn outline" href="/imports/{item.id}/delete">حذف گزارش</a>' if user.role == 'admin' else ''
@@ -2044,49 +2044,23 @@ def delete_import_confirm(import_id: int, request: Request, db: Session = Depend
         raise HTTPException(404, 'فایل موردنظر پیدا نشد')
     token = csrf_token(request)
     count = db.scalar(select(func.count()).select_from(Log).where(Log.source_import_id == import_id)) or 0
-    content = f'<div class="card"><h2>تأیید حذف گزارش</h2><p>فایل: <strong>{escape(item.filename)}</strong></p><p>تعداد ترددهای ثبت‌شده از این فایل: <strong>{count}</strong></p><p class="muted">با حذف، رکوردهای همین فایل و گزارش‌های روزانه وابسته به آن بازسازی می‌شوند. پرسنل و ترددهای سایر فایل‌ها محفوظ می‌مانند. این عملیات برگشت خودکار ندارد؛ قبل از حذف از دیتابیس بکاپ داشته باشید.</p><form method="post" action="/imports/{item.id}/delete" class="actions"><input type="hidden" name="csrf_token" value="{token}"><button style="background:#9b3d38">بله، حذف شود</button><a href="/imports" class="btn outline">انصراف</a></form></div>'
+    content = f'<div class="card"><h2>پنهان‌کردن گزارش از لیست</h2><p>فایل: <strong>{escape(item.filename)}</strong></p><p>تعداد ترددهای ثبت‌شده از این فایل: <strong>{count}</strong></p><p class="muted">فایل فقط از لیست پنهان می‌شود. تمام ترددهای این فایل در دیتابیس مرکزی باقی می‌مانند و در گزارش‌ها همچنان نمایش داده می‌شوند.</p><form method="post" action="/imports/{item.id}/delete" class="actions"><input type="hidden" name="csrf_token" value="{token}"><button>بله، از لیست پنهان شود</button><a href="/imports" class="btn outline">انصراف</a></form></div>'
     return page('حذف گزارش', content, request, db, 'imports')
 
 
 @app.post('/imports/{import_id}/delete')
 def delete_import(import_id: int, request: Request, csrf_token: str = Form(), db: Session = Depends(get_db)):
+    """Hide the import from the list without touching any punch data in the DB."""
     user = permit(request, db, 'admin')
     csrf(request, csrf_token)
     item = db.get(Import, import_id)
     if not item:
         raise HTTPException(404, 'فایل موردنظر پیدا نشد')
-    punches = list(db.scalars(select(Log).where(Log.source_import_id == import_id)))
-    affected = {(x.device_id, x.occurred_at.astimezone(TZ).date().isoformat()) for x in punches}
-    report_set = db.scalar(select(ReportSet).where(ReportSet.import_id == import_id))
-    if report_set:
-        for punch in db.scalars(select(ReportPunch).where(ReportPunch.report_id == report_set.id)).all():
-            db.delete(punch)
-        for day in db.scalars(select(ReportDay).where(ReportDay.report_id == report_set.id)).all():
-            db.delete(day)
-        db.flush()
-        db.delete(report_set)
-        db.flush()
-    for punch in punches:
-        db.delete(punch)
-    db.flush()
-    for device_id, day in affected:
-        record = db.scalar(select(AttendanceRecord).where(AttendanceRecord.device_id == device_id, AttendanceRecord.local_day == day))
-        if not record:
-            continue
-        day_start = datetime.fromisoformat(day).replace(tzinfo=TZ).astimezone(timezone.utc)
-        day_end = (datetime.fromisoformat(day) + timedelta(days=1)).replace(tzinfo=TZ).astimezone(timezone.utc)
-        remaining = list(db.scalars(select(Log.occurred_at).where(Log.device_id == device_id, Log.occurred_at >= day_start, Log.occurred_at < day_end).order_by(Log.occurred_at)))
-        if not remaining:
-            db.delete(record)
-        else:
-            record.first_punch = remaining[0]
-            record.last_punch = remaining[-1] if len(remaining) > 1 else None
-            record.punch_count = len(remaining)
     filename = item.filename
-    db.delete(item)
-    audit(db, user, 'file_delete', f'{filename} removed_punches={len(punches)}')
+    item.note = 'hidden'
+    audit(db, user, 'file_hide', f'{filename} hidden from list (data preserved)')
     db.commit()
-    return redirect('/imports', f'گزارش «{filename}» حذف شد و روزهای حضور باقیمانده بازسازی شدند')
+    return redirect('/imports', f'فایل «{filename}» از لیست پنهان شد؛ همه ترددها در دیتابیس محفوظ هستند')
 
 
 @app.post('/imports')
