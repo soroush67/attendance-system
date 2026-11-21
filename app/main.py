@@ -3587,6 +3587,49 @@ def revoke_correction(request: Request, employee_id: int = Form(), day_jalali: s
     return changes_redirect(employee.id, day_jalali, message) if from_changes == '1' else correction_redirect(employee.id, day_jalali, message)
 
 
+@app.post('/reports/delete-day')
+def delete_report_day(
+    request: Request,
+    employee_id: int = Form(),
+    day_jalali: str = Form(),
+    csrf_token: str = Form(),
+    db: Session = Depends(get_db),
+):
+    """Delete all punch data for one employee on one day from the central DB."""
+    user = permit(request, db, 'admin')
+    csrf(request, csrf_token)
+    employee = db.get(Employee, employee_id)
+    if not employee:
+        raise HTTPException(404, 'کارمند یافت نشد')
+    day = correction_day(day_jalali)
+    day_str = day.isoformat()
+    day_start = datetime.combine(day, time.min).replace(tzinfo=TZ).astimezone(timezone.utc)
+    day_end   = datetime.combine(day + timedelta(days=1), time.min).replace(tzinfo=TZ).astimezone(timezone.utc)
+
+    logs = db.scalars(select(Log).where(
+        Log.device_id == employee.device_id,
+        Log.occurred_at >= day_start, Log.occurred_at < day_end,
+    )).all()
+    for lg in logs:
+        db.delete(lg)
+    for rp in db.scalars(select(ReportPunch).where(
+        ReportPunch.device_id == employee.device_id, ReportPunch.local_day == day_str,
+    )).all():
+        db.delete(rp)
+    for rd in db.scalars(select(ReportDay).where(
+        ReportDay.device_id == employee.device_id, ReportDay.local_day == day_str,
+    )).all():
+        db.delete(rd)
+    record = db.scalar(select(AttendanceRecord).where(
+        AttendanceRecord.device_id == employee.device_id, AttendanceRecord.local_day == day_str,
+    ))
+    if record:
+        db.delete(record)
+    audit(db, user, 'punch_day_delete', f'employee={employee.device_id} day={day_str} punches={len(logs)}')
+    db.commit()
+    return redirect('/reports', f'ترددهای {employee.name} در {day_jalali} حذف شد')
+
+
 @app.get('/reports')
 def reports(request: Request, start_jalali: str = '', end_jalali: str = '', report_id: int = 0, period: str = 'daily', employee_id: int = 0, anchor_day: int = 20, db: Session = Depends(get_db)):
     user = permit(request, db, 'admin', 'operator', 'viewer', 'exporter')
@@ -3594,6 +3637,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
     start_jalali = start_jalali or to_jalali(today - timedelta(days=30))
     end_jalali = end_jalali or to_jalali(today)
     rows = report_rows(db, start_jalali, end_jalali, report_id, period, employee_id, anchor_day)
+    token = csrf_token(request)
     from urllib.parse import urlencode
     daily_employee_ids = {}
     active_corrections = {}
@@ -3616,9 +3660,17 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
                      if correction.origin == 'manager_manual' else
                      '<span class="correction-tag" title="ساعت مؤثر توسط مدیر اصلاح شده؛ تعداد ثبت دستگاه جداگانه محاسبه می‌شود">✎ اصلاح مدیر</span>')
                      if correction and correction.action == 'set' else '')
-            edit = ('<a class="correction-edit" href="/corrections?' + urlencode({
-                'employee_id': emp_id, 'day_jalali': row[2],
-            }) + '">اصلاح تردد</a>') if user.role == 'admin' else ''
+            edit = (
+                '<a class="correction-edit" href="/corrections?' + urlencode({
+                    'employee_id': emp_id, 'day_jalali': row[2],
+                }) + '">اصلاح</a>'
+                + f'<form method="post" action="/reports/delete-day" style="display:inline" onsubmit="return confirm(\'ترددهای این روز حذف شود؟\')">'
+                + f'<input type="hidden" name="employee_id" value="{emp_id}">'
+                + f'<input type="hidden" name="day_jalali" value="{escape(row[2])}">'
+                + f'<input type="hidden" name="csrf_token" value="{token}">'
+                + '<button class="correction-edit" style="color:#c0392b;background:none;border:none;cursor:pointer;padding:0;font:inherit">حذف</button>'
+                + '</form>'
+            ) if user.role == 'admin' else ''
             cells[0] = f'<td data-label="نام کارمند">{escape(row[0])}{badge}</td>'
             if user.role == 'admin':
                 cells.append(f'<td data-label="عملیات" class="report-actions-cell"><div class="report-row-actions">{edit}</div></td>')
@@ -3626,8 +3678,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
     table = ''.join(rendered_rows)
     query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali, 'period': period, 'employee_id': employee_id, 'anchor_day': anchor_day})
     download = f'<a class="btn" href="/reports/download?{query}">دانلود Excel</a>' if user.role in ('admin', 'operator', 'exporter') else ''
-    corrections_link = ('<a class="btn outline" href="/changes">میزکار اعمال تغییرات</a>'
-                        '<a class="btn outline" href="/corrections">اصلاح دستی ورود/خروج</a>') if user.role == 'admin' else ''
+    corrections_link = ''
     daily_query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali,
                              'period': 'daily',
                              'employee_id': employee_id, 'anchor_day': anchor_day})
