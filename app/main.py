@@ -1192,7 +1192,20 @@ def employees(request: Request, search: str = '', show_deleted: int = 0, db: Ses
         group_label = 'مدیران · دستی' if employee.attendance_group == 'management' else 'پرسنل · دستگاه'
         rows += f'<tr><td>{escape(employee.name)}</td><td dir="ltr">{escape(employee.device_id)}</td><td>{escape(group_label)}</td><td><span class="pill {"warn" if employee.status == "suspended" else "error" if employee.status == "deleted" else ""}">{status_map[employee.status]}</span></td><td class="employee-actions-cell">{actions}</td></tr>'
     checkbox = 'checked' if show_deleted == 1 else ''
-    body = msg(request) + form + f'<div class="card"><h2>فهرست پرسنل</h2><form method="get" class="actions"><input name="search" style="max-width:330px" placeholder="جست‌وجوی نام یا شماره دستگاه" value="{escape(search)}"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" name="show_deleted" value="1" {checkbox} style="width:auto">نمایش حذف‌شده‌ها</label><button>جست‌وجو</button></form><div class="table-wrap" tabindex="0" aria-label="جدول پرسنل؛ در نمایشگر کوچک به طرفین پیمایش کنید"><table class="employee-table"><thead><tr><th>نام کارمند</th><th>شناسه یکتا</th><th>گروه تردد</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{rows}</tbody></table></div></div>'
+    bulk_form = ''
+    if user.role == 'admin':
+        bulk_form = (
+            '<div class="card"><h2>بارگذاری گروهی پرسنل از Excel</h2>'
+            '<p class="muted">فایل را بر اساس قالب استاندارد تهیه کنید. ستون‌ها: نام، نام خانوادگی، کد ملی، گروه تردد. '
+            'فایل فعلی سازمانی (با ستون‌های ردیف، نام، نام خانوادگی، کد ملی) هم مستقیماً قابل بارگذاری است.</p>'
+            '<p><a class="btn outline" href="/employees/template">دانلود قالب Excel</a></p>'
+            '<form method="post" enctype="multipart/form-data" action="/employees/bulk" class="fields">'
+            '<div><label>فایل Excel پرسنل (.xlsx)</label>'
+            '<input type="file" name="file" accept=".xlsx" required></div>'
+            f'<div><input type="hidden" name="csrf_token" value="{token}"><button>بارگذاری و ثبت پرسنل</button></div>'
+            '</form></div>'
+        )
+    body = msg(request) + form + bulk_form + f'<div class="card"><h2>فهرست پرسنل</h2><form method="get" class="actions"><input name="search" style="max-width:330px" placeholder="جست‌وجوی نام یا شماره دستگاه" value="{escape(search)}"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" name="show_deleted" value="1" {checkbox} style="width:auto">نمایش حذف‌شده‌ها</label><button>جست‌وجو</button></form><div class="table-wrap" tabindex="0" aria-label="جدول پرسنل؛ در نمایشگر کوچک به طرفین پیمایش کنید"><table class="employee-table"><thead><tr><th>نام کارمند</th><th>شناسه یکتا</th><th>گروه تردد</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{rows}</tbody></table></div></div>'
     return page('مدیریت پرسنل', body, request, db, 'employees')
 
 
@@ -1220,6 +1233,156 @@ def delete_employee(employee_id: int, request: Request, csrf_token: str = Form()
     audit(db, user, 'employee_delete', employee.device_id)
     db.commit()
     return redirect('/employees', 'کارمند حذف منطقی شد؛ سوابق تردد او محفوظ است')
+
+
+# ─── Employee Excel template ────────────────────────────────────────────────
+
+def _make_employee_template() -> bytes:
+    """Generate a fresh xlsx template for bulk employee import."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'پرسنل'
+    ws.sheet_view.rightToLeft = True
+
+    headers = [('نام', 18), ('نام خانوادگی', 22), ('کد ملی', 18), ('گروه تردد', 20)]
+    for col, (h, width) in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True, color='FFFFFF', name='Calibri')
+        cell.fill = PatternFill('solid', fgColor='1E3A5F')
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        ws.column_dimensions[chr(64 + col)].width = width
+    ws.row_dimensions[1].height = 22
+
+    dv = DataValidation(type='list', formula1='"staff,management"', allow_blank=True, showDropDown=False)
+    ws.add_data_validation(dv)
+    dv.sqref = 'D2:D10000'
+
+    examples = [
+        ('بهروز', 'آرمان‌مهر',         '19200364', 'staff'),
+        ('مریم',  'کریمی',              '46000999', 'staff'),
+        ('علی',   'مدیریت',             '',          'management'),
+    ]
+    for row_idx, row in enumerate(examples, 2):
+        for col, val in enumerate(row, 1):
+            ws.cell(row=row_idx, column=col, value=val)
+
+    ns = wb.create_sheet('راهنما')
+    ns.sheet_view.rightToLeft = True
+    ns.column_dimensions['A'].width = 20
+    ns.column_dimensions['B'].width = 50
+    guide = [
+        ('ستون',          'توضیح'),
+        ('نام',           'الزامی · نام کوچک'),
+        ('نام خانوادگی',  'الزامی · نام خانوادگی'),
+        ('کد ملی',        'الزامی برای پرسنل عادی · به عنوان شناسه دستگاه استفاده می‌شود'),
+        ('گروه تردد',     'staff یا management · پیش‌فرض: staff'),
+        ('', ''),
+        ('staff',         'پرسنل عادی · تردد از دستگاه ثبت می‌شود · کد ملی الزامی است'),
+        ('management',    'مدیران · ثبت دستی توسط ادمین · کد ملی اختیاری است'),
+    ]
+    for r, (a, b) in enumerate(guide, 1):
+        ns.cell(row=r, column=1, value=a)
+        ns.cell(row=r, column=2, value=b)
+        if r == 1:
+            for c in (1, 2):
+                ns.cell(row=1, column=c).font = Font(bold=True)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@app.get('/employees/template')
+def employees_template(request: Request, db: Session = Depends(get_db)):
+    permit(request, db, 'admin')
+    data = _make_employee_template()
+    return Response(
+        content=data,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': 'attachment; filename="employees-template.xlsx"'},
+    )
+
+
+@app.post('/employees/bulk')
+async def employees_bulk(
+    request: Request,
+    file: UploadFile = File(),
+    csrf_token: str = Form(),
+    db: Session = Depends(get_db),
+):
+    import io as _io
+    from openpyxl import load_workbook as _load_wb
+
+    admin = permit(request, db, 'admin')
+    csrf(request, csrf_token)
+    if not (file.filename or '').lower().endswith('.xlsx'):
+        return redirect('/employees', 'فقط فایل xlsx مجاز است')
+    data = await file.read(5 * 1024 * 1024 + 1)
+    if len(data) > 5 * 1024 * 1024:
+        return redirect('/employees', 'حجم فایل بیش از ۵ مگابایت است')
+    try:
+        wb = _load_wb(_io.BytesIO(data), read_only=True, data_only=True)
+        ws = wb.active
+    except Exception:
+        return redirect('/employees', 'فایل xlsx نامعتبر یا خراب است')
+
+    created = skipped = 0
+    error_parts: list[str] = []
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
+        # skip completely empty rows
+        if not row or not any(c for c in row if c not in ('', None)):
+            continue
+
+        # support both 4-col template (نام, نام‌خانوادگی, کد ملی, گروه)
+        # and 5-col legacy (ردیف, نام, نام‌خانوادگی, کد ملی, گروه)
+        if len(row) >= 5 and str(row[0]).strip().isdigit():
+            first, last, national_id = row[1], row[2], row[3]
+            group_raw = row[4] if len(row) > 4 else None
+        else:
+            first, last, national_id = row[0], row[1], row[2]
+            group_raw = row[3] if len(row) > 3 else None
+
+        first  = str(first).strip()  if first  not in ('', None) else ''
+        last   = str(last).strip()   if last   not in ('', None) else ''
+        national_id = str(national_id).strip() if national_id not in ('', None) else ''
+        group  = str(group_raw).strip().lower() if group_raw not in ('', None) else 'staff'
+        if group not in ('staff', 'management'):
+            group = 'staff'
+
+        full_name = f'{first} {last}'.strip()
+        if not full_name or len(full_name) > 200:
+            error_parts.append(f'سطر {row_idx}: نام نامعتبر')
+            continue
+
+        if not national_id:
+            if group != 'management':
+                error_parts.append(f'سطر {row_idx}: کد ملی برای پرسنل عادی الزامی است')
+                continue
+            device_id = 'MANUAL-' + secrets.token_hex(8).upper()
+        else:
+            device_id = national_id[:80]
+
+        if db.scalar(select(Employee.id).where(Employee.device_id == device_id)):
+            skipped += 1
+            continue
+
+        db.add(Employee(name=full_name, device_id=device_id, attendance_group=group))
+        audit(db, admin, 'employee_create', f'code={device_id} group={group} (bulk)')
+        created += 1
+
+    db.commit()
+    parts = [f'{created} نفر ثبت شد']
+    if skipped:
+        parts.append(f'{skipped} تکراری نادیده گرفته شد')
+    if error_parts:
+        parts.append(f'{len(error_parts)} خطا: ' + ' | '.join(error_parts[:4]))
+    return redirect('/employees', ' · '.join(parts))
 
 
 @app.post('/employees')
