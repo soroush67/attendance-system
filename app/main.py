@@ -1000,10 +1000,7 @@ def page(title, body, request, db, section=''):
         nav += [('managers', '/managers/attendance', 'ثبت تردد مدیران'),
                 ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی مدیران')]
     if user and user.role == 'admin':
-        nav += [('managers', '/managers/attendance', 'ثبت مستقیم تردد مدیران'),
-                ('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی'),
-                ('manager_approvals', '/managers/approvals', 'بررسی درخواست‌های قدیمی'),
-                ('changes', '/changes', 'اعمال تغییرات'), ('corrections', '/corrections', 'اصلاح تردد'),
+        nav += [('managers_bulk', '/managers/attendance/bulk', 'ثبت گروهی'),
                 ('backups', '/backups', 'پشتیبان‌گیری'), ('users', '/users', 'مدیریت کاربران'),
                 ('audit', '/audit', 'تاریخچه فعالیت')]
     icons = {'dashboard': '◈', 'employees': '♙', 'imports': '⇧', 'reports': '▤', 'managers': '◷', 'managers_bulk': '▦', 'manager_approvals': '✓', 'changes': '✎', 'corrections': '◷', 'backups': '◴', 'users': '♧', 'audit': '▥'}
