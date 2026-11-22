@@ -257,6 +257,21 @@ class Audit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class LeaveDay(Base):
+    """Admin-recorded leave for one employee on one calendar day."""
+    __tablename__ = 'leave_days'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey('employees.id'), nullable=False)
+    local_day: Mapped[str] = mapped_column(String(10), nullable=False)
+    leave_type: Mapped[str] = mapped_column(String(30), default='مرخصی', nullable=False)
+    actor_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    __table_args__ = (
+        UniqueConstraint('employee_id', 'local_day', name='uq_leave_days_employee_day'),
+        Index('ix_leave_days_local_day', 'local_day'),
+    )
+
+
 class LoginRateLimit(Base):
     """Persistent anonymized counters shared across Uvicorn workers.
 
@@ -2368,6 +2383,57 @@ def latest_corrections(db, start_iso, end_iso, employee_id=0):
     return result
 
 
+def absent_rows(db, start_jalali, end_jalali):
+    """Employees who have no punch at all in the given range, per day."""
+    start, end = range_jalali(start_jalali, end_jalali)
+    # days that DO have a punch
+    punched = {(r[0], r[1]) for r in db.execute(
+        select(ReportDay.device_id, ReportDay.local_day).where(
+            ReportDay.local_day >= start.isoformat(),
+            ReportDay.local_day <= end.isoformat(),
+        )
+    ).all()}
+    employees = db.scalars(select(Employee).where(Employee.status == 'active').order_by(Employee.name)).all()
+    rows = []
+    cur = start
+    while cur <= end:
+        day_iso = cur.isoformat()
+        day_j = to_jalali(cur)
+        for emp in employees:
+            if (emp.device_id, day_iso) not in punched:
+                rows.append((emp.name, emp.device_id, day_j))
+        cur += timedelta(days=1)
+    return rows
+
+
+def on_leave_rows(db, start_jalali, end_jalali):
+    """Rows for employees with a recorded leave in the given range."""
+    start, end = range_jalali(start_jalali, end_jalali)
+    leave_data = db.execute(
+        select(LeaveDay.employee_id, LeaveDay.local_day, Employee.name, Employee.device_id)
+        .join(Employee, Employee.id == LeaveDay.employee_id)
+        .where(LeaveDay.local_day >= start.isoformat(), LeaveDay.local_day <= end.isoformat())
+        .order_by(LeaveDay.local_day, Employee.name)
+    ).all()
+    return [(r[2], r[3], to_jalali(datetime.fromisoformat(r[1]).date())) for r in leave_data]
+
+
+def incomplete_rows(db, start_jalali, end_jalali):
+    """Employees who have only one punch (no exit or no entry) in a day."""
+    start, end = range_jalali(start_jalali, end_jalali)
+    # days with exactly 1 distinct punch time
+    stmt = (
+        select(ReportPunch.device_id, ReportPunch.local_day, Employee.name,
+               func.count(ReportPunch.id).label('cnt'))
+        .join(Employee, Employee.device_id == ReportPunch.device_id)
+        .where(ReportPunch.local_day >= start.isoformat(), ReportPunch.local_day <= end.isoformat())
+        .group_by(ReportPunch.device_id, ReportPunch.local_day, Employee.name)
+        .having(func.count(ReportPunch.id) == 1)
+        .order_by(ReportPunch.local_day, Employee.name)
+    )
+    return [(r[2], r[0], to_jalali(datetime.fromisoformat(r[1]).date())) for r in db.execute(stmt).all()]
+
+
 def report_rows(db, start_jalali, end_jalali, report_id, period, employee_id=0, anchor_day=20):
     start, end = range_jalali(start_jalali, end_jalali)
     if period not in ('daily', 'daily_raw', 'daily_pairs', 'monthly', 'yearly', 'cycle', 'custom'):
@@ -3747,23 +3813,94 @@ def delete_report_day(
     return redirect('/reports', f'ترددهای {employee.name} در {day_jalali} حذف شد')
 
 
+@app.post('/reports/leave-day')
+def set_leave_day(
+    request: Request,
+    employee_id: int = Form(),
+    day_jalali: str = Form(),
+    csrf_token: str = Form(),
+    db: Session = Depends(get_db),
+):
+    user = permit(request, db, 'admin')
+    csrf(request, csrf_token)
+    employee = db.get(Employee, employee_id)
+    if not employee:
+        raise HTTPException(404, 'کارمند یافت نشد')
+    day = correction_day(day_jalali)
+    day_str = day.isoformat()
+    existing = db.scalar(select(LeaveDay).where(
+        LeaveDay.employee_id == employee_id,
+        LeaveDay.local_day == day_str,
+    ))
+    if existing:
+        return redirect('/reports', f'{employee.name} در {day_jalali} قبلاً مرخصی دارد')
+    db.add(LeaveDay(employee_id=employee_id, local_day=day_str, actor_id=user.id))
+    audit(db, user, 'leave_set', f'employee={employee.device_id} day={day_str}')
+    db.commit()
+    return redirect('/reports', f'مرخصی {employee.name} در {day_jalali} ثبت شد')
+
+
+@app.post('/reports/leave-day/remove')
+def remove_leave_day(
+    request: Request,
+    employee_id: int = Form(),
+    day_jalali: str = Form(),
+    csrf_token: str = Form(),
+    db: Session = Depends(get_db),
+):
+    user = permit(request, db, 'admin')
+    csrf(request, csrf_token)
+    employee = db.get(Employee, employee_id)
+    if not employee:
+        raise HTTPException(404, 'کارمند یافت نشد')
+    day_str = correction_day(day_jalali).isoformat()
+    leave = db.scalar(select(LeaveDay).where(
+        LeaveDay.employee_id == employee_id,
+        LeaveDay.local_day == day_str,
+    ))
+    if leave:
+        db.delete(leave)
+        audit(db, user, 'leave_remove', f'employee={employee.device_id} day={day_str}')
+        db.commit()
+    return redirect('/reports', f'مرخصی {employee.name} در {day_jalali} لغو شد')
+
+
 @app.get('/reports')
-def reports(request: Request, start_jalali: str = '', end_jalali: str = '', report_id: int = 0, period: str = 'daily', employee_id: int = 0, anchor_day: int = 20, db: Session = Depends(get_db)):
+def reports(request: Request, start_jalali: str = '', end_jalali: str = '', report_id: int = 0, period: str = 'daily', employee_id: int = 0, anchor_day: int = 20, view_filter: str = '', db: Session = Depends(get_db)):
     user = permit(request, db, 'admin', 'operator', 'viewer', 'exporter')
     today = datetime.now(TZ).date()
     start_jalali = start_jalali or to_jalali(today - timedelta(days=30))
     end_jalali = end_jalali or to_jalali(today)
-    rows = report_rows(db, start_jalali, end_jalali, report_id, period, employee_id, anchor_day)
+    # Special view filters bypass normal report_rows
+    if view_filter == 'absent':
+        special_rows = absent_rows(db, start_jalali, end_jalali)
+        special_headers = ['نام کارمند', 'شناسه دستگاه', 'تاریخ']
+    elif view_filter == 'on_leave':
+        special_rows = on_leave_rows(db, start_jalali, end_jalali)
+        special_headers = ['نام کارمند', 'شناسه دستگاه', 'تاریخ']
+    elif view_filter == 'incomplete':
+        special_rows = incomplete_rows(db, start_jalali, end_jalali)
+        special_headers = ['نام کارمند', 'شناسه دستگاه', 'تاریخ']
+    else:
+        special_rows = None
+        special_headers = None
+    rows = report_rows(db, start_jalali, end_jalali, report_id, period, employee_id, anchor_day) if special_rows is None else []
     token = csrf_token(request)
     from urllib.parse import urlencode
     daily_employee_ids = {}
     active_corrections = {}
+    active_leaves: set[tuple[int, str]] = set()
     if period == 'daily' and rows:
         start, end = range_jalali(start_jalali, end_jalali)
         daily_employee_ids = {emp.device_id: emp.id for emp in db.scalars(select(Employee).where(
             Employee.device_id.in_({row[1] for row in rows})
         ))}
         active_corrections = latest_corrections(db, start.isoformat(), end.isoformat(), employee_id)
+        leave_rows = db.execute(select(LeaveDay.employee_id, LeaveDay.local_day).where(
+            LeaveDay.local_day >= start.isoformat(),
+            LeaveDay.local_day <= end.isoformat(),
+        )).all()
+        active_leaves = {(r[0], r[1]) for r in leave_rows}
     column_labels = report_headers(period)
     rendered_rows = []
     for row in rows:
@@ -3773,25 +3910,65 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
             emp_id = daily_employee_ids[row[1]]
             day = parse_jalali(row[2]).isoformat()
             correction = active_corrections.get((emp_id, day))
-            badge = (('<span class="correction-tag" title="تردد با ثبت دستی منشی و تاریخچه قابل پیگیری است">◷ ثبت دستی مدیران</span>'
-                     if correction.origin == 'manager_manual' else
-                     '<span class="correction-tag" title="ساعت مؤثر توسط مدیر اصلاح شده؛ تعداد ثبت دستگاه جداگانه محاسبه می‌شود">✎ اصلاح مدیر</span>')
-                     if correction and correction.action == 'set' else '')
-            edit = (
-                '<a class="correction-edit" href="/corrections?' + urlencode({
-                    'employee_id': emp_id, 'day_jalali': row[2],
-                }) + '">اصلاح</a>'
-                + f'<form method="post" action="/reports/delete-day" style="display:inline" onsubmit="return confirm(\'ترددهای این روز حذف شود؟\')">'
-                + f'<input type="hidden" name="employee_id" value="{emp_id}">'
-                + f'<input type="hidden" name="day_jalali" value="{escape(row[2])}">'
-                + f'<input type="hidden" name="csrf_token" value="{token}">'
-                + '<button class="correction-edit" style="color:#c0392b" type="submit">حذف</button>'
-                + '</form>'
-            ) if user.role == 'admin' else ''
+            has_leave = (emp_id, day) in active_leaves
+            badge = ''
+            if has_leave:
+                badge = '<span class="correction-tag" style="color:var(--warning,#b87d00);background:var(--warning-soft,#fef3cd)" title="مرخصی ثبت‌شده">✦ مرخصی</span>'
+            elif correction and correction.action == 'set':
+                badge = ('<span class="correction-tag" title="تردد با ثبت دستی منشی">◷ ثبت دستی مدیران</span>'
+                         if correction.origin == 'manager_manual' else
+                         '<span class="correction-tag" title="ساعت مؤثر توسط مدیر اصلاح شده">✎ اصلاح مدیر</span>')
+            if user.role == 'admin':
+                leave_btn = (
+                    f'<form method="post" action="/reports/leave-day/remove" style="display:inline" onsubmit="return confirm(\'مرخصی این روز لغو شود؟\')">'
+                    + f'<input type="hidden" name="employee_id" value="{emp_id}">'
+                    + f'<input type="hidden" name="day_jalali" value="{escape(row[2])}">'
+                    + f'<input type="hidden" name="csrf_token" value="{token}">'
+                    + '<button class="correction-edit" style="color:#b87d00" type="submit" title="لغو مرخصی">✕ مرخصی</button>'
+                    + '</form>'
+                ) if has_leave else (
+                    f'<form method="post" action="/reports/leave-day" style="display:inline" onsubmit="return confirm(\'مرخصی این روز ثبت شود؟\')">'
+                    + f'<input type="hidden" name="employee_id" value="{emp_id}">'
+                    + f'<input type="hidden" name="day_jalali" value="{escape(row[2])}">'
+                    + f'<input type="hidden" name="csrf_token" value="{token}">'
+                    + '<button class="correction-edit" type="submit" title="ثبت مرخصی">✦ مرخصی</button>'
+                    + '</form>'
+                )
+                edit = (
+                    '<a class="correction-edit" href="/corrections?' + urlencode({
+                        'employee_id': emp_id, 'day_jalali': row[2],
+                    }) + '">اصلاح</a>'
+                    + leave_btn
+                    + f'<form method="post" action="/reports/delete-day" style="display:inline" onsubmit="return confirm(\'ترددهای این روز حذف شود؟\')">'
+                    + f'<input type="hidden" name="employee_id" value="{emp_id}">'
+                    + f'<input type="hidden" name="day_jalali" value="{escape(row[2])}">'
+                    + f'<input type="hidden" name="csrf_token" value="{token}">'
+                    + '<button class="correction-edit" style="color:#c0392b" type="submit">حذف</button>'
+                    + '</form>'
+                )
+            else:
+                edit = ''
             cells[0] = f'<td data-label="نام کارمند">{escape(row[0])}{badge}</td>'
             if user.role == 'admin':
                 cells.append(f'<td data-label="عملیات" class="report-actions-cell"><div class="report-row-actions">{edit}</div></td>')
         rendered_rows.append('<tr>' + ''.join(cells) + '</tr>')
+    # Build special-filter table if applicable
+    if special_rows is not None:
+        sp_header = ''.join(f'<th>{escape(h)}</th>' for h in special_headers)
+        sp_body = ''.join(
+            '<tr>' + ''.join(f'<td>{escape(str(c))}</td>' for c in r) + '</tr>'
+            for r in special_rows
+        )
+        filter_labels = {'absent': 'غایبین', 'on_leave': 'مرخصی‌ها', 'incomplete': 'تردد ناقص'}
+        sp_title = filter_labels.get(view_filter, '')
+        special_table_html = (
+            f'<div class="card"><h2>{sp_title} ({len(special_rows)} ردیف)</h2>'
+            '<div class="table-wrap" tabindex="0"><table>'
+            f'<thead><tr>{sp_header}</tr></thead><tbody>{sp_body}</tbody>'
+            '</table></div></div>'
+        )
+    else:
+        special_table_html = ''
     table = ''.join(rendered_rows)
     query = urlencode({'start_jalali': start_jalali, 'end_jalali': end_jalali, 'period': period, 'employee_id': employee_id, 'anchor_day': anchor_day})
     download = f'<a class="btn" href="/reports/download?{query}">دانلود Excel</a>' if user.role in ('admin', 'operator', 'exporter') else ''
@@ -3875,20 +4052,32 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
         'برای مرتب‌سازی چندسطحی (مثلاً ابتدا نام، سپس تاریخ و بعد نوبت)، Shift را نگه دارید و روی ستون‌های بعدی کلیک کنید. '
         'عدد کنار فلش اولویت مرتب‌سازی را نشان می‌دهد.</p>'
         '</details>'
-        f'<div class="actions">{download}{daily_link}<span class="muted">{len(rows)} ردیف</span></div>'
+        + (
+            '<div class="actions" style="flex-wrap:wrap;gap:8px">'
+            + f'<a class="btn{" outline" if view_filter != "absent" else ""}" href="/reports?' + urlencode({"start_jalali": start_jalali, "end_jalali": end_jalali, "view_filter": "absent"}) + '">غایبین</a>'
+            + f'<a class="btn{" outline" if view_filter != "on_leave" else ""}" href="/reports?' + urlencode({"start_jalali": start_jalali, "end_jalali": end_jalali, "view_filter": "on_leave"}) + '">مرخصی‌ها</a>'
+            + f'<a class="btn{" outline" if view_filter != "incomplete" else ""}" href="/reports?' + urlencode({"start_jalali": start_jalali, "end_jalali": end_jalali, "view_filter": "incomplete"}) + '">تردد ناقص</a>'
+            + (f'<a class="btn outline" href="/reports?{urlencode({"start_jalali": start_jalali, "end_jalali": end_jalali})}">× بستن فیلتر</a>' if view_filter else '')
+            + '</div>'
+        )
+        + f'<div class="actions">{download}{daily_link}<span class="muted">{len(special_rows) if special_rows is not None else len(rows)} ردیف</span></div>'
         f'{add_record_section}</div>'
-        '<div class="report-mobile-sort">'
-        f'<div><label for="report-sort-field">مرتب‌سازی گزارش بر اساس</label><select id="report-sort-field">{mobile_sort_options}</select></div>'
-        '<div><label for="report-sort-direction">جهت مرتب‌سازی</label><select id="report-sort-direction">'
-        '<option value="1">صعودی</option><option value="-1">نزولی</option></select></div></div>'
-        '<section class="card report-table-panel" aria-label="نتایج گزارش">'
-        '<p class="report-scroll-hint">↔ جدول قابل پیمایش افقی است؛ ستون عملیات در دسترس می‌ماند. '
-        'برای حرکت با صفحه‌کلید، داخل جدول کلیک کنید یا با Tab روی آن بروید و از کلیدهای جهت‌دار استفاده کنید.</p>'
-        f'<div class="report-table-scroll" role="region" aria-label="جدول نتایج حضور" tabindex="0">'
-        f'<table id="attendance-report-table" class="sortable-table">'
-        f'<thead><tr>{header}</tr></thead><tbody>{table}</tbody></table></div>'
-        + ('<p class="muted" role="status">در بازه و فیلتر انتخاب‌شده ردیفی یافت نشد.</p>' if not rows else '')
-        + '</section>'
+        + special_table_html
+        + (
+            '<div class="report-mobile-sort">'
+            f'<div><label for="report-sort-field">مرتب‌سازی گزارش بر اساس</label><select id="report-sort-field">{mobile_sort_options}</select></div>'
+            '<div><label for="report-sort-direction">جهت مرتب‌سازی</label><select id="report-sort-direction">'
+            '<option value="1">صعودی</option><option value="-1">نزولی</option></select></div></div>'
+            '<section class="card report-table-panel" aria-label="نتایج گزارش">'
+            '<p class="report-scroll-hint">↔ جدول قابل پیمایش افقی است؛ ستون عملیات در دسترس می‌ماند. '
+            'برای حرکت با صفحه‌کلید، داخل جدول کلیک کنید یا با Tab روی آن بروید و از کلیدهای جهت‌دار استفاده کنید.</p>'
+            f'<div class="report-table-scroll" role="region" aria-label="جدول نتایج حضور" tabindex="0">'
+            f'<table id="attendance-report-table" class="sortable-table">'
+            f'<thead><tr>{header}</tr></thead><tbody>{table}</tbody></table></div>'
+            + ('<p class="muted" role="status">در بازه و فیلتر انتخاب‌شده ردیفی یافت نشد.</p>' if not rows else '')
+            + '</section>'
+            if not view_filter else ''
+        )
     )
     return page('گزارش حضور', body, request, db, 'reports')
 
@@ -3910,7 +4099,9 @@ def download(request: Request, start_jalali: str, end_jalali: str, report_id: in
     ws.freeze_panes = 'A2'; ws.sheet_view.rightToLeft = True
     buffer = io.BytesIO(); wb.save(buffer); buffer.seek(0)
     audit(db, user, 'report_download', f'{start_jalali}..{end_jalali} period={period} report={report_id} employee={employee_id} anchor={anchor_day}'); db.commit()
-    return StreamingResponse(buffer, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': 'attachment; filename="attendance.xlsx"'})
+    now_j = jdatetime.datetime.now(TZ)
+    fname = f'attendance_{now_j.strftime("%Y-%m-%d_%H-%M")}.xlsx'
+    return StreamingResponse(buffer, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': f'attachment; filename="{fname}"'})
 
 
 @app.get('/backups')
