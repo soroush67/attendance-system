@@ -4089,12 +4089,12 @@ def download(request: Request, start_jalali: str, end_jalali: str, report_id: in
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     wb = Workbook(); ws = wb.active; ws.title = 'گزارش حضور'
-    ws.append(report_headers(period))
-    for row in rows:
-        ws.append([f"'{x}" if isinstance(x, str) and x.lstrip().startswith(('=', '+', '-', '@')) else x for x in row])
+    ws.append(['ردیف'] + report_headers(period))
+    for i, row in enumerate(rows, start=1):
+        ws.append([i] + [f"'{x}" if isinstance(x, str) and x.lstrip().startswith(('=', '+', '-', '@')) else x for x in row])
     for cell in ws[1]:
         cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='254D59'); cell.alignment = Alignment(horizontal='right')
-    for col, width in {'A': 36, 'B': 22, 'C': 34, 'D': 20, 'E': 20, 'F': 25, 'G': 28, 'H': 20}.items(): ws.column_dimensions[col].width = width
+    for col, width in {'A': 7, 'B': 36, 'C': 22, 'D': 34, 'E': 20, 'F': 20, 'G': 25, 'H': 28, 'I': 20}.items(): ws.column_dimensions[col].width = width
     ws.auto_filter.ref = ws.dimensions
     ws.freeze_panes = 'A2'; ws.sheet_view.rightToLeft = True
     buffer = io.BytesIO(); wb.save(buffer); buffer.seek(0)
