@@ -3931,7 +3931,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
                     + f'<input type="hidden" name="employee_id" value="{emp_id}">'
                     + f'<input type="hidden" name="day_jalali" value="{escape(row[2])}">'
                     + f'<input type="hidden" name="csrf_token" value="{token}">'
-                    + '<button class="correction-edit" type="submit" title="ثبت مرخصی">✦ مرخصی</button>'
+                    + '<button class="correction-edit" style="color:var(--primary,#1a6fa8)" type="submit" title="ثبت مرخصی">✦ مرخصی</button>'
                     + '</form>'
                 )
                 edit = (
