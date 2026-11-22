@@ -2288,7 +2288,7 @@ def jalali_cycle_label(day, anchor_day):
 
 def report_headers(period):
     if period == 'daily':
-        return ['نام کارمند', 'شناسه دستگاه', 'تاریخ شمسی', 'اولین ثبت', 'آخرین ثبت', 'تعداد ثبت دستگاه', 'مدت حضور ثبت‌شده', 'مدت (دقیقه)']
+        return ['نام کارمند', 'شناسه دستگاه', 'تاریخ شمسی', 'وضعیت', 'اولین ثبت', 'آخرین ثبت', 'تعداد ثبت دستگاه', 'مدت حضور ثبت‌شده', 'مدت (دقیقه)']
     if period == 'daily_raw':
         return ['نام کارمند', 'شناسه دستگاه', 'تاریخ شمسی', 'شماره ثبت', 'ساعت ثبت']
     if period == 'daily_pairs':
@@ -2485,6 +2485,19 @@ def report_rows(db, start_jalali, end_jalali, report_id, period, employee_id=0, 
     employee_ids = {emp.device_id: emp.id for emp in db.scalars(select(Employee).where(
         Employee.device_id.in_({code for code, _, _ in unique_days})
     ))}
+    # Load leave days for the period
+    leave_set: set[tuple[int, str]] = {
+        (r[0], r[1]) for r in db.execute(
+            select(LeaveDay.employee_id, LeaveDay.local_day).where(
+                LeaveDay.local_day >= start.isoformat(),
+                LeaveDay.local_day <= end.isoformat(),
+            )
+        ).all()
+    }
+
+    def is_on_leave(code, day):
+        eid = employee_ids.get(code)
+        return eid is not None and (eid, day) in leave_set
 
     def window(code, day):
         revision = corrections.get((employee_ids[code], day))
@@ -2495,6 +2508,7 @@ def report_rows(db, start_jalali, end_jalali, report_id, period, employee_id=0, 
         for code, day, name in unique_days:
             times = sorted(punches.get((code, day), ()))
             day_text = to_jalali(datetime.fromisoformat(day).date())
+            on_leave = is_on_leave(code, day)
             if period == 'daily_raw':
                 for ordinal, stamp in enumerate(times, start=1):
                     rows.append([name, code, day_text, ordinal, stamp.strftime('%H:%M:%S')])
@@ -2508,9 +2522,11 @@ def report_rows(db, start_jalali, end_jalali, report_id, period, employee_id=0, 
                     rows.append([name, code, day_text, 1, '—', '—', '—'])
             else:
                 first, last, seconds = window(code, day)
+                status = 'مرخصی' if on_leave else ''
                 rows.append([name, code, day_text,
-                             first.strftime('%H:%M:%S') if first is not None else '—',
-                             last.strftime('%H:%M:%S') if last is not None else '—',
+                             status,
+                             '—' if on_leave else (first.strftime('%H:%M:%S') if first is not None else '—'),
+                             '—' if on_leave else (last.strftime('%H:%M:%S') if last is not None else '—'),
                              len(times), duration_label(seconds) if seconds is not None else '—',
                              duration_minutes(seconds) if seconds is not None else '—'])
         # Keep recent days first, but display sessions/events chronologically.
@@ -3576,7 +3592,13 @@ def corrections_page(request: Request, employee_id: int = 0, day_jalali: str = '
         f'<input type="hidden" name="expected_revision" value="{current.id if current else 0}">'
         f'<div><label for="first_clock">ورود اصلاحی (اختیاری)</label><input id="first_clock" name="first_clock" value="{escape(first_override)}" placeholder="08:00:00" inputmode="numeric" maxlength="8"></div>'
         f'<div><label for="last_clock">خروج اصلاحی (اختیاری)</label><input id="last_clock" name="last_clock" value="{escape(last_override)}" placeholder="16:00:00" inputmode="numeric" maxlength="8"></div>'
-        '<div><label for="reason">دلیل اصلاح</label><textarea id="reason" name="reason" rows="2" maxlength="500" minlength="5" required placeholder="مثلاً ثبت ورود توسط کارمند فراموش شده است"></textarea></div>'
+        '<div><label for="reason">دلیل اصلاح</label>'
+        '<select id="reason-preset" onchange="if(this.value){document.getElementById(\'reason\').value=this.value;this.value=\'\'}" style="margin-bottom:6px;width:100%">'
+        '<option value="">— انتخاب دلیل پیش‌فرض —</option>'
+        '<option value="درخواست اصلاح تردد">درخواست اصلاح تردد</option>'
+        '<option value="فراموشی ثبت تردد">فراموشی ثبت تردد</option>'
+        '</select>'
+        '<textarea id="reason" name="reason" rows="2" maxlength="500" minlength="5" required placeholder="مثلاً ثبت ورود توسط کارمند فراموش شده است"></textarea></div>'
         '<div><button type="submit">ثبت اصلاح با تاریخچه</button></div>'
         '</div></form>'
     )
@@ -4008,7 +4030,7 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '', repo
         ('daily_pairs','جفت ثبت‌های متوالی (برای بررسی)')
     ])
     sort_types = (
-        ['text', 'text', 'date', 'time', 'time', 'number', 'duration', 'number'] if period == 'daily' else
+        ['text', 'text', 'date', 'text', 'time', 'time', 'number', 'duration', 'number'] if period == 'daily' else
         ['text', 'text', 'date', 'number', 'time'] if period == 'daily_raw' else
         ['text', 'text', 'date', 'number', 'time', 'time', 'number'] if period == 'daily_pairs' else
         ['text', 'text', 'text', 'number', 'number', 'duration', 'number']
@@ -4094,7 +4116,7 @@ def download(request: Request, start_jalali: str, end_jalali: str, report_id: in
         ws.append([i] + [f"'{x}" if isinstance(x, str) and x.lstrip().startswith(('=', '+', '-', '@')) else x for x in row])
     for cell in ws[1]:
         cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='254D59'); cell.alignment = Alignment(horizontal='right')
-    for col, width in {'A': 7, 'B': 36, 'C': 22, 'D': 34, 'E': 20, 'F': 20, 'G': 25, 'H': 28, 'I': 20}.items(): ws.column_dimensions[col].width = width
+    for col, width in {'A': 7, 'B': 36, 'C': 22, 'D': 18, 'E': 14, 'F': 20, 'G': 20, 'H': 20, 'I': 28, 'J': 20}.items(): ws.column_dimensions[col].width = width
     ws.auto_filter.ref = ws.dimensions
     ws.freeze_panes = 'A2'; ws.sheet_view.rightToLeft = True
     buffer = io.BytesIO(); wb.save(buffer); buffer.seek(0)
