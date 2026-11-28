@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from attendance.config import get_settings
 from attendance.db import get_db
 from attendance.models import (ROLES, AttendanceCorrection, Audit, Employee, Import, LeaveDay,
-                               Log, ReportDay, ReportSet, User)
+                               Log, ReportDay, ReportSet, ReportPunch, User)
 from attendance.security import (client_ip, hash_password, ip_blocked, is_locked, password_problem,
                                  record_failure, record_success, session_user, start_session, verify_password)
 from attendance.services.importer import IngestError, delete_import, ingest, punches_of_import
@@ -292,36 +292,104 @@ def import_delete(import_id: int, request: Request, csrf_token: str = Form(''),
 
 # ------------------------------------------------------------------ reports
 
-def _report_query(start_jalali: str, end_jalali: str, report_id: int, period: str) -> ReportQuery:
+def _report_query(start_jalali: str, end_jalali: str, report_id: int, period: str,
+                  employee_id: int = 0, anchor_day: int = 20) -> ReportQuery:
     today = datetime.now(get_settings().timezone).date()
-    return ReportQuery.parse(start_jalali or to_jalali(today - timedelta(days=30)), end_jalali or to_jalali(today),
-                             report_id, period)
+    return ReportQuery.parse(
+        start_jalali or to_jalali(today - timedelta(days=30)),
+        end_jalali or to_jalali(today),
+        report_id, period, employee_id, anchor_day)
 
 
 @router.get('/reports')
-def reports(request: Request, start_jalali: str = '', end_jalali: str = '', report_id: int = 0, period: str = 'daily',
+def reports(request: Request, start_jalali: str = '', end_jalali: str = '',
+            report_id: int = 0, period: str = 'daily', employee_id: int = 0,
+            anchor_day: int = 20, view_filter: str = '',
             user: User = Depends(require(*ALL_ROLES)), db: Session = Depends(get_db)):
+    from attendance.services.reports import absent_rows, on_leave_rows, incomplete_rows
     error, rows, q = '', [], None
-    try:
-        q = _report_query(start_jalali, end_jalali, report_id, period)
-        rows = report_rows(db, q)
-    except ReportError as exc:
-        error = str(exc)
+    special_rows, special_headers = None, None
     today = datetime.now(get_settings().timezone).date()
-    form = {'start_jalali': start_jalali or to_jalali(today - timedelta(days=30)),
-            'end_jalali': end_jalali or to_jalali(today), 'report_id': report_id,
-            'period': period if period in PERIODS else 'daily'}
+    start_j = start_jalali or to_jalali(today - timedelta(days=30))
+    end_j = end_jalali or to_jalali(today)
+
+    if view_filter == 'absent':
+        special_rows = absent_rows(db, start_j, end_j, employee_id)
+        special_headers = ['نام کارمند', 'شناسه دستگاه', 'تاریخ']
+    elif view_filter == 'on_leave':
+        special_rows = on_leave_rows(db, start_j, end_j, employee_id)
+        special_headers = ['نام کارمند', 'شناسه دستگاه', 'تاریخ', 'نوع']
+    elif view_filter == 'incomplete':
+        special_rows = incomplete_rows(db, start_j, end_j, employee_id)
+        special_headers = ['نام کارمند', 'شناسه دستگاه', 'تاریخ']
+    else:
+        try:
+            q = _report_query(start_j, end_j, report_id, period, employee_id, anchor_day)
+            rows = report_rows(db, q)
+        except ReportError as exc:
+            error = str(exc)
+
+    form = {'start_jalali': start_j, 'end_jalali': end_j, 'report_id': report_id,
+            'period': period if period in PERIODS else 'daily',
+            'employee_id': employee_id, 'anchor_day': anchor_day}
     reports_list = db.execute(select(ReportSet.id, ReportSet.name).order_by(ReportSet.id.desc())).all()
-    return render(request, 'reports.html', 'گزارش حضور', 'reports', rows=rows, form=form, periods=PERIODS,
-                  headers=HEADERS[form['period']], reports_list=reports_list, report_error=error,
-                  download_query=urlencode(form) if q else '')
+    all_employees = db.scalars(select(Employee).where(Employee.status == 'active').order_by(Employee.name)).all()
+    return render(request, 'reports.html', 'گزارش تردد', 'reports',
+                  rows=rows, form=form, periods=PERIODS,
+                  headers=HEADERS[form['period']], reports_list=reports_list,
+                  report_error=error, download_query=urlencode(form) if q else '',
+                  special_rows=special_rows, special_headers=special_headers,
+                  view_filter=view_filter, all_employees=all_employees)
+
+
+@router.post('/reports/leave-day')
+def reports_leave_day(request: Request, employee_id: int = Form(...), day_jalali: str = Form(...),
+                      csrf_token: str = Form(''), back: str = Form(''),
+                      user: User = Depends(require('admin')), db: Session = Depends(get_db)):
+    check_csrf(request, csrf_token)
+    emp = db.get(Employee, employee_id)
+    if not emp:
+        raise HTTPException(404)
+    day = parse_jalali(day_jalali).isoformat()
+    existing = db.scalar(select(LeaveDay).where(LeaveDay.employee_id == employee_id,
+                                                 LeaveDay.local_day == day))
+    if existing:
+        db.delete(existing)
+        msg = f'مرخصی {emp.name} در {day_jalali} لغو شد'
+    else:
+        db.add(LeaveDay(employee_id=employee_id, local_day=day, leave_type='مرخصی'))
+        msg = f'مرخصی {emp.name} در {day_jalali} ثبت شد'
+    audit(db, user.username, 'leave_toggle', f'emp={employee_id} day={day}')
+    db.commit()
+    return redirect(back or '/reports', msg)
+
+
+@router.post('/reports/delete-day')
+def reports_delete_day(request: Request, employee_id: int = Form(...), day_jalali: str = Form(...),
+                       csrf_token: str = Form(''), back: str = Form(''),
+                       user: User = Depends(require('admin')), db: Session = Depends(get_db)):
+    check_csrf(request, csrf_token)
+    emp = db.get(Employee, employee_id)
+    if not emp:
+        raise HTTPException(404)
+    day = parse_jalali(day_jalali).isoformat()
+    deleted = db.execute(
+        select(Log).where(Log.device_id == emp.device_id,
+                          func.date(Log.occurred_at) == day)
+    ).scalars().all()
+    for log in deleted:
+        db.delete(log)
+    audit(db, user.username, 'delete_day', f'emp={employee_id} day={day} count={len(deleted)}')
+    db.commit()
+    return redirect(back or '/reports', f'ترددهای {emp.name} در {day_jalali} حذف شد ({len(deleted)} ثبت)')
 
 
 @router.get('/reports/download')
 def download(request: Request, start_jalali: str = '', end_jalali: str = '', report_id: int = 0,
-             period: str = 'daily', user: User = Depends(require(*CAN_EXPORT)), db: Session = Depends(get_db)):
+             period: str = 'daily', employee_id: int = 0, anchor_day: int = 20,
+             user: User = Depends(require(*CAN_EXPORT)), db: Session = Depends(get_db)):
     try:
-        q = _report_query(start_jalali, end_jalali, report_id, period)
+        q = _report_query(start_jalali, end_jalali, report_id, period, employee_id, anchor_day)
         rows = report_rows(db, q)
     except ReportError as exc:
         raise HTTPException(400, str(exc)) from None

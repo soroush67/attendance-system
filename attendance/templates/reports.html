@@ -1,17 +1,170 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="card"><h2>گزارش‌گیری دلخواه حضور</h2>
-<form method="get"><div class="fields">
-  <div><label for="start">از تاریخ شمسی</label><input id="start" name="start_jalali" value="{{ form.start_jalali }}" placeholder="۱۴۰۵/۰۸/۰۱" required></div>
-  <div><label for="end">تا تاریخ شمسی</label><input id="end" name="end_jalali" value="{{ form.end_jalali }}" placeholder="۱۴۰۵/۰۸/۳۰" required></div>
-  <div><label for="report">گزارش</label><select id="report" name="report_id"><option value="0">تمام گزارش‌های نام‌گذاری‌شده</option>{% for id, name in reports_list %}<option value="{{ id }}" {{ 'selected' if id == form.report_id }}>{{ name }}</option>{% endfor %}</select></div>
-  <div><label for="period">نوع گزارش</label><select id="period" name="period">{% for k, v in periods.items() %}<option value="{{ k }}" {{ 'selected' if k == form.period }}>{{ v }}</option>{% endfor %}</select></div>
-  <div><button>نمایش گزارش</button></div>
-</div></form>
-<p class="muted">در حالت «تمام گزارش‌ها»، روزهای تکراری یک کارمند فقط یک بار شمرده می‌شوند. ساعت‌ها اولین و آخرین ثبت اثر انگشت در همان روز هستند و لزوماً ورود و خروج قطعی نیستند.</p>
-{% if report_error %}<div class="msg msg-error" role="alert">{{ report_error }}</div>{% endif %}
-<div class="actions">{% if can_export and download_query %}<a class="btn" href="/reports/download?{{ download_query }}">دانلود Excel</a>{% endif %}<span class="muted">{{ rows|length }} ردیف</span></div></div>
-<div class="card table-wrap"><table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>
-{% for row in rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% else %}<tr><td colspan="{{ headers|length }}" class="muted">در این بازه رکوردی وجود ندارد.</td></tr>{% endfor %}
-</tbody></table></div>
+
+{# ── فرم گزارش‌گیری ── #}
+<div class="card">
+  <h2>گزارش‌گیری پویا</h2>
+  <form method="get">
+    <div class="fields">
+      <div>
+        <label>از تاریخ شمسی</label>
+        <input name="start_jalali" value="{{ form.start_jalali }}" placeholder="۱۴۰۵/۰۸/۰۱" required>
+      </div>
+      <div>
+        <label>تا تاریخ شمسی</label>
+        <input name="end_jalali" value="{{ form.end_jalali }}" placeholder="۱۴۰۵/۰۸/۳۰" required>
+      </div>
+      <div>
+        <label>نام کارمند</label>
+        <select name="employee_id">
+          <option value="0">تمام پرسنل</option>
+          {% for emp in all_employees %}
+          <option value="{{ emp.id }}" {{ 'selected' if emp.id == form.employee_id }}>{{ emp.name }} — {{ emp.device_id }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>شیوه محاسبه</label>
+        <select name="period">
+          {% for k, v in periods.items() %}
+          <option value="{{ k }}" {{ 'selected' if k == form.period }}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>گزارش آپلودشده</label>
+        <select name="report_id">
+          <option value="0">تمام گزارش‌ها</option>
+          {% for id, name in reports_list %}
+          <option value="{{ id }}" {{ 'selected' if id == form.report_id }}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>روز شروع دوره شناور (۱–۲۸)</label>
+        <input type="number" name="anchor_day" min="1" max="28" value="{{ form.anchor_day }}">
+      </div>
+      <div style="align-self:flex-end"><button>نمایش گزارش</button></div>
+    </div>
+  </form>
+
+  {# دکمه‌های فیلتر سریع #}
+  <div class="actions" style="margin-top:14px;flex-wrap:wrap">
+    <a class="btn {{ '' if view_filter != 'absent' else 'outline' }}" href="/reports?start_jalali={{ form.start_jalali }}&end_jalali={{ form.end_jalali }}&employee_id={{ form.employee_id }}&view_filter=absent">غایبین</a>
+    <a class="btn {{ '' if view_filter != 'on_leave' else 'outline' }}" href="/reports?start_jalali={{ form.start_jalali }}&end_jalali={{ form.end_jalali }}&employee_id={{ form.employee_id }}&view_filter=on_leave">مرخصی‌ها</a>
+    <a class="btn {{ '' if view_filter != 'incomplete' else 'outline' }}" href="/reports?start_jalali={{ form.start_jalali }}&end_jalali={{ form.end_jalali }}&employee_id={{ form.employee_id }}&view_filter=incomplete">تردد ناقص</a>
+    {% if view_filter %}<a class="btn outline" href="/reports?start_jalali={{ form.start_jalali }}&end_jalali={{ form.end_jalali }}&employee_id={{ form.employee_id }}">× بستن فیلتر</a>{% endif %}
+  </div>
+
+  {% if report_error %}<div class="msg msg-error" role="alert">{{ report_error }}</div>{% endif %}
+
+  {# دانلود + تعداد ردیف #}
+  <div class="actions" style="margin-top:10px">
+    {% if can_export and download_query %}<a class="btn" href="/reports/download?{{ download_query }}">دانلود Excel</a>{% endif %}
+    {% if form.period in ('monthly','yearly','cycle') and not view_filter %}
+    <a class="btn outline" href="/reports?start_jalali={{ form.start_jalali }}&end_jalali={{ form.end_jalali }}&employee_id={{ form.employee_id }}&period=daily">ریز روزانه همین بازه</a>
+    {% endif %}
+    <span class="muted">{{ (special_rows or rows)|length }} ردیف</span>
+  </div>
+</div>
+
+{# ── جدول فیلتر ویژه (غایبین / مرخصی / ناقص) ── #}
+{% if special_rows is not none %}
+<div class="card">
+  {% set filter_titles = {'absent':'غایبین','on_leave':'مرخصی‌ها','incomplete':'تردد ناقص'} %}
+  <h2>{{ filter_titles.get(view_filter,'') }} ({{ special_rows|length }} ردیف)</h2>
+  <div class="table-wrap"><table>
+    <thead><tr>{% for h in special_headers %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in special_rows %}
+    <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+    {% else %}
+    <tr><td colspan="{{ special_headers|length }}" class="muted">رکوردی یافت نشد.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+{# ── جدول گزارش اصلی ── #}
+{% else %}
+<div class="card table-wrap">
+  <table id="report-table">
+    <thead><tr>
+      {% for h in headers %}<th class="sortable" onclick="sortTable(this)" data-col="{{ loop.index0 }}">{{ h }}<span class="sort-ind"></span></th>{% endfor %}
+      {% if user.role == 'admin' and form.period == 'daily' %}<th>عملیات</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for row in rows %}
+    <tr>
+      {# daily rows: row = [name, device, jalali_day, first, last, emp_id, day_iso, on_leave] #}
+      {% if form.period == 'daily' %}
+        {% set emp_id = row[5] %}
+        {% set day_iso = row[6] %}
+        {% set on_leave = row[7] %}
+        {% set back_url = '/reports?' ~ request.url.query %}
+        <td>
+          {{ row[0] }}
+          {% if on_leave %}<span class="pill warn" style="font-size:10px;padding:1px 7px">مرخصی</span>{% endif %}
+        </td>
+        <td><bdi>{{ row[1] }}</bdi></td>
+        <td>{{ row[2] }}</td>
+        <td>{{ row[3] }}</td>
+        <td>{{ row[4] }}</td>
+        {% if user.role == 'admin' %}
+        <td style="white-space:nowrap">
+          <form method="post" action="/reports/leave-day" style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="employee_id" value="{{ emp_id }}">
+            <input type="hidden" name="day_jalali" value="{{ row[2] }}">
+            <input type="hidden" name="back" value="{{ back_url }}">
+            <button class="btn outline btn-sm" style="{{ 'color:#b87d00' if on_leave else '' }}" title="{{ 'لغو مرخصی' if on_leave else 'ثبت مرخصی' }}">{{ '✕ مرخصی' if on_leave else '✦ مرخصی' }}</button>
+          </form>
+          <form method="post" action="/reports/delete-day" style="display:inline" onsubmit="return confirm('ترددهای این روز حذف شود؟')">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="employee_id" value="{{ emp_id }}">
+            <input type="hidden" name="day_jalali" value="{{ row[2] }}">
+            <input type="hidden" name="back" value="{{ back_url }}">
+            <button class="btn outline btn-sm danger" style="font-size:11px">حذف روز</button>
+          </form>
+        </td>
+        {% endif %}
+      {% else %}
+        {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
+      {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="{{ headers|length + (1 if user.role == 'admin' and form.period == 'daily' else 0) }}" class="muted">در این بازه رکوردی وجود ندارد.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<style>
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{background:var(--primary-soft);color:var(--primary)}
+.sort-ind::after{content:" ↕";opacity:.4;font-size:10px}
+th.asc .sort-ind::after{content:" ↑";opacity:1}
+th.desc .sort-ind::after{content:" ↓";opacity:1}
+</style>
+
+<script>
+function sortTable(th) {
+  var table = document.getElementById('report-table');
+  var col = parseInt(th.dataset.col);
+  var asc = !th.classList.contains('asc');
+  // reset all
+  table.querySelectorAll('th.sortable').forEach(function(t){t.classList.remove('asc','desc')});
+  th.classList.add(asc ? 'asc' : 'desc');
+  var rows = Array.from(table.tBodies[0].rows);
+  rows.sort(function(a, b) {
+    var av = a.cells[col] ? a.cells[col].textContent.trim() : '';
+    var bv = b.cells[col] ? b.cells[col].textContent.trim() : '';
+    var n = parseFloat(av) - parseFloat(bv);
+    var cmp = isNaN(n) ? av.localeCompare(bv, 'fa') : n;
+    return asc ? cmp : -cmp;
+  });
+  rows.forEach(function(r){table.tBodies[0].appendChild(r)});
+}
+</script>
 {% endblock %}
