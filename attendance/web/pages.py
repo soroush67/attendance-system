@@ -240,7 +240,7 @@ def imports_page(request: Request, user: User = Depends(require(*ALL_ROLES)), db
         .outerjoin(ReportDay, ReportDay.report_id == ReportSet.id)
         .group_by(Import.id, ReportSet.id).order_by(Import.id.desc()).limit(100)).all()
     tz = get_settings().timezone
-    items = [{'import': imp, 'report_id': rid, 'name': name or 'بدون نام', 'days': days,
+    items = [{'imp': imp, 'report_id': rid, 'name': name or 'بدون نام', 'days': days,
               'uploaded': imp.uploaded_at.astimezone(tz).strftime('%Y-%m-%d %H:%M')} for imp, rid, name, days in rows]
     return render(request, 'imports.html', 'ورود اطلاعات دستگاه', 'imports', items=items,
                   max_mb=get_settings().upload_max_bytes // (1024 * 1024))
