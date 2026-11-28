@@ -1,0 +1,53 @@
+# استقرار جداگانه برای شاخه feature/work-hours-monthly
+# پورت: 18091 (سیستم فعال روی 18090 است — تداخل ندارد)
+# دیتابیس جداگانه: attendance_wh
+# کانتینرها: att-wh-db  /  att-wh-web
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: att-wh-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: attendance_wh
+      POSTGRES_USER: att
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-att_wh_pass}
+    volumes:
+      - att_wh_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U att -d attendance_wh"]
+      interval: 10s
+      retries: 5
+
+  migrate:
+    image: ${APP_IMAGE:-att-wh-app:latest}
+    container_name: att-wh-migrate
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+psycopg2://att:${DB_PASSWORD:-att_wh_pass}@db/attendance_wh
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-env}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    image: ${APP_IMAGE:-att-wh-app:latest}
+    container_name: att-wh-web
+    restart: unless-stopped
+    ports:
+      - "18091:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://att:${DB_PASSWORD:-att_wh_pass}@db/attendance_wh
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-env}
+      APP_VERSION: work-hours-dev
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8000/ready || exit 1"]
+      interval: 15s
+      retries: 3
+
+volumes:
+  att_wh_pgdata:

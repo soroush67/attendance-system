@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+{% if user.role == 'admin' %}
+<div class="card"><h2>تعریف کارمند جدید</h2>
+<form class="fields" method="post" action="/employees">
+  <div><label for="emp-name">نام و نام خانوادگی</label><input id="emp-name" name="name" maxlength="200" required></div>
+  <div><label for="emp-code">شماره اختصاصی دستگاه</label><input id="emp-code" name="device_id" maxlength="80" inputmode="numeric" pattern="[0-9]+" dir="ltr" required></div>
+  <div><input type="hidden" name="csrf_token" value="{{ csrf }}"><button>افزودن کارمند</button></div>
+</form></div>
+{% endif %}
+<div class="card"><h2>فهرست کارکنان</h2>
+<form method="get" class="actions" role="search">
+  <label for="search" class="sr-only">جست‌وجو</label>
+  <input id="search" name="search" style="max-width:330px" placeholder="جست‌وجوی نام یا شماره دستگاه" value="{{ search }}">
+  <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" name="show_deleted" value="1" {{ 'checked' if show_deleted }} style="width:auto;min-height:auto">نمایش حذف‌شده‌ها</label>
+  <button>جست‌وجو</button>
+</form>
+<div class="table-wrap"><table><thead><tr><th>نام کارمند</th><th>شماره دستگاه</th><th>وضعیت</th>{% if user.role == 'admin' %}<th>عملیات</th>{% endif %}</tr></thead><tbody>
+{% for e in employees %}
+<tr><td>{{ e.name }}</td><td><bdi>{{ e.device_id }}</bdi></td>
+<td><span class="pill {{ 'warn' if e.status == 'suspended' else 'error' if e.status == 'deleted' else '' }}">{{ status_labels[e.status] }}</span></td>
+{% if user.role in ('admin', 'operator') %}<td>
+  <a href="/employees/{{ e.id }}/monthly" class="btn outline btn-sm">کارکرد ماهانه</a>
+  {% if user.role == 'admin' %}
+  <form method="post" action="/employees/{{ e.id }}/status" class="actions"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <select name="status" aria-label="وضعیت">{% for k, v in status_labels.items() %}<option value="{{ k }}" {{ 'selected' if k == e.status }}>{{ v }}</option>{% endfor %}</select><button class="outline btn-sm">ثبت وضعیت</button></form>
+  <details><summary>ویرایش</summary><form class="actions" method="post" action="/employees/{{ e.id }}/edit"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input name="name" value="{{ e.name }}" aria-label="نام" required><input name="device_id" value="{{ e.device_id }}" aria-label="شماره دستگاه" dir="ltr" required><button class="btn-sm">ذخیره</button></form></details>
+  {% if e.status != 'deleted' %}<a href="/employees/{{ e.id }}/delete" class="btn outline btn-sm" style="color:#a43d39">حذف کارمند</a>{% endif %}
+  {% endif %}
+</td>{% endif %}</tr>
+{% else %}<tr><td colspan="4" class="muted">کارمندی یافت نشد.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}

@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.month-nav { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+.month-nav a { color:var(--accent); text-decoration:none; padding:4px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+.month-nav a:hover { background:var(--surface-alt); }
+.month-title { font-size:16px; font-weight:700; }
+.month-nav form { display:flex; gap:8px; align-items:center; }
+.month-nav select { font-size:13px; padding:3px 6px; border-radius:5px; border:1px solid var(--border); background:var(--surface); color:var(--fg); }
+
+/* summary cards */
+.summary-row { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:24px; }
+.sum-card { flex:1 1 120px; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px 14px; text-align:center; }
+.sum-card .num { font-size:22px; font-weight:700; line-height:1; }
+.sum-card .lbl { font-size:11px; color:var(--muted); margin-top:4px; }
+.sum-card.red .num { color:#f87171; }
+.sum-card.green .num { color:#4ade80; }
+.sum-card.blue .num { color:#60a5fa; }
+.sum-card.amber .num { color:#fbbf24; }
+
+/* table */
+.monthly-table { width:100%; border-collapse:collapse; font-size:13px; }
+.monthly-table th { padding:8px 10px; text-align:right; font-weight:600; font-size:11px; white-space:nowrap; border-bottom:2px solid var(--border); color:var(--muted); }
+.monthly-table td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+.monthly-table tr:hover td { background:var(--surface-alt); }
+.monthly-table tr.holiday td { opacity:.45; }
+.badge-status { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+.s-present  { background:#14532d44; color:#4ade80; }
+.s-deficit  { background:#78350f44; color:#fbbf24; }
+.s-absent   { background:#450a0a44; color:#f87171; }
+.s-leave    { background:#1e3a5f44; color:#60a5fa; }
+.s-overtime { background:#2d1f6e44; color:#a78bfa; }
+.s-holiday  { background:#1f1f2e44; color:#94a3b8; }
+
+.act-btn { font-size:11px; padding:3px 8px; border-radius:5px; border:1px solid var(--border); background:transparent; color:var(--accent); cursor:pointer; }
+.act-btn:hover { background:var(--surface-alt); }
+.act-btn.red { color:#f87171; border-color:#f87171; }
+
+/* modal */
+.modal-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:100; align-items:center; justify-content:center; }
+.modal-backdrop.open { display:flex; }
+.modal { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:24px; min-width:300px; max-width:420px; width:90%; }
+.modal h3 { margin:0 0 16px; font-size:15px; }
+.modal label { display:block; font-size:12px; color:var(--muted); margin-bottom:3px; }
+.modal input, .modal select, .modal textarea {
+  width:100%; padding:7px 10px; border-radius:6px; border:1px solid var(--border);
+  background:var(--surface); color:var(--fg); font-size:13px; margin-bottom:12px;
+  font-family:inherit;
+}
+.modal-actions { display:flex; gap:8px; justify-content:flex-end; }
+.btn-primary { padding:7px 18px; border-radius:6px; background:var(--accent); color:#fff; border:none; cursor:pointer; font-size:13px; }
+.btn-cancel  { padding:7px 14px; border-radius:6px; background:transparent; color:var(--muted); border:1px solid var(--border); cursor:pointer; font-size:13px; }
+</style>
+
+<div class="month-nav">
+  <span class="month-title">{{ employee.name }} — {{ month_name }} {{ year }}</span>
+  {% set prev_month = month - 1 if month > 1 else 12 %}
+  {% set prev_year  = year if month > 1 else year - 1 %}
+  {% set next_month = month + 1 if month < 12 else 1 %}
+  {% set next_year  = year if month < 12 else year + 1 %}
+  <a href="?year={{ prev_year }}&month={{ prev_month }}">‹ ماه قبل</a>
+  <a href="?year={{ next_year }}&month={{ next_month }}">ماه بعد ›</a>
+  <a href="/employees">← بازگشت</a>
+</div>
+
+{# خلاصه ماه #}
+<div class="summary-row">
+  <div class="sum-card green">
+    <div class="num">{{ (summary.total_worked_min // 60) }}:{{ '%02d'|format(summary.total_worked_min % 60) }}</div>
+    <div class="lbl">مجموع کارکرد</div>
+  </div>
+  <div class="sum-card red">
+    <div class="num">{{ (summary.total_deficit_min // 60) }}:{{ '%02d'|format(summary.total_deficit_min % 60) }}</div>
+    <div class="lbl">مجموع کسری</div>
+  </div>
+  <div class="sum-card amber">
+    <div class="num">{{ (summary.total_overtime_min // 60) }}:{{ '%02d'|format(summary.total_overtime_min % 60) }}</div>
+    <div class="lbl">اضافه‌کاری</div>
+  </div>
+  <div class="sum-card blue">
+    <div class="num">{{ summary.leave_days }}</div>
+    <div class="lbl">روز مرخصی</div>
+  </div>
+  <div class="sum-card red">
+    <div class="num">{{ summary.absent_days }}</div>
+    <div class="lbl">غیبت</div>
+  </div>
+  <div class="sum-card">
+    <div class="num">{{ summary.present_days }}/{{ summary.workday_count }}</div>
+    <div class="lbl">حضور / روز کاری</div>
+  </div>
+</div>
+
+<div style="overflow-x:auto">
+<table class="monthly-table">
+  <thead>
+    <tr>
+      <th>تاریخ</th>
+      <th>روز</th>
+      <th>وضعیت</th>
+      <th>اولین ورود</th>
+      <th>آخرین خروج</th>
+      <th>کارکرد</th>
+      <th>کسری</th>
+      <th>عملیات</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    {% set st = e.status(ws.standard_hours) %}
+    {% set is_hol = st == STATUS_HOLIDAY %}
+    <tr class="{{ 'holiday' if is_hol else '' }}">
+      <td>{{ e.local_day }}</td>
+      <td>{{ e.weekday_fa }}</td>
+      <td>
+        {% if st == STATUS_PRESENT %}<span class="badge-status s-present">حاضر</span>
+        {% elif st == STATUS_DEFICIT %}<span class="badge-status s-deficit">کسری</span>
+        {% elif st == STATUS_ABSENT %}<span class="badge-status s-absent">غایب</span>
+        {% elif st == STATUS_LEAVE %}<span class="badge-status s-leave">مرخصی</span>
+        {% elif st == STATUS_OVERTIME %}<span class="badge-status s-overtime">اضافه‌کاری</span>
+        {% else %}<span class="badge-status s-holiday">تعطیل</span>
+        {% endif %}
+      </td>
+      <td>{{ e.first_punch.astimezone().strftime('%H:%M') if e.first_punch else '—' }}</td>
+      <td>{{ e.last_punch.astimezone().strftime('%H:%M') if e.last_punch else '—' }}</td>
+      <td>{% if e.worked_minutes %}{{ e.worked_minutes // 60 }}:{{ '%02d'|format(e.worked_minutes % 60) }}{% else %}—{% endif %}</td>
+      <td>{% set d = e.deficit_minutes(ws.standard_hours) %}{% if d %}{{ d // 60 }}:{{ '%02d'|format(d % 60) }}{% else %}—{% endif %}</td>
+      <td>
+        {% if not is_hol %}
+        <button class="act-btn" onclick="openLeave('{{ e.local_day }}','{{ st == STATUS_LEAVE }}')">
+          {{ 'حذف مرخصی' if st == STATUS_LEAVE else 'مرخصی' }}
+        </button>
+        <button class="act-btn" onclick="openCorrection('{{ e.local_day }}')">اصلاح</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{# Modal مرخصی #}
+<div class="modal-backdrop" id="modal-leave">
+  <div class="modal">
+    <h3 id="leave-title">ثبت مرخصی</h3>
+    <form method="post" id="form-leave">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="local_day" id="leave-day">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="month" value="{{ month }}">
+      <label>نوع مرخصی</label>
+      <select name="leave_type">
+        <option value="مرخصی">مرخصی روزانه</option>
+        <option value="ماموریت">ماموریت</option>
+      </select>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeModal('modal-leave')">انصراف</button>
+        <button type="submit" class="btn-primary">ثبت</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Modal اصلاح #}
+<div class="modal-backdrop" id="modal-correction">
+  <div class="modal">
+    <h3>اصلاح ساعت تردد</h3>
+    <form method="post" id="form-correction" action="/employees/{{ employee.id }}/correction">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="local_day" id="corr-day">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="month" value="{{ month }}">
+      <label>نوع پانچ</label>
+      <select name="punch_type">
+        <option value="in">ورود</option>
+        <option value="out">خروج</option>
+      </select>
+      <label>ساعت (HH:MM)</label>
+      <input type="time" name="punch_time" required>
+      <label>دلیل</label>
+      <select name="reason" required>
+        <option value="">— انتخاب دلیل —</option>
+        <option value="درخواست اصلاح تردد">درخواست اصلاح تردد</option>
+        <option value="فراموشی ثبت تردد">فراموشی ثبت تردد</option>
+        <option value="ماموریت">ماموریت</option>
+      </select>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeModal('modal-correction')">انصراف</button>
+        <button type="submit" class="btn-primary">ثبت اصلاح</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openLeave(day, isLeave) {
+  document.getElementById('leave-day').value = day;
+  document.getElementById('leave-title').textContent = isLeave === 'True' ? 'حذف مرخصی' : 'ثبت مرخصی';
+  document.getElementById('form-leave').action = '/employees/{{ employee.id }}/leave';
+  document.getElementById('modal-leave').classList.add('open');
+}
+function openCorrection(day) {
+  document.getElementById('corr-day').value = day;
+  document.getElementById('modal-correction').classList.add('open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+document.querySelectorAll('.modal-backdrop').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+});
+</script>
+{% endblock %}
