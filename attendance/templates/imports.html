@@ -11,7 +11,7 @@
 {% endif %}
 <div class="card"><h2>تاریخچه فایل‌ها</h2><p class="muted">گزارش‌های نام‌گذاری‌شده، مستقل و قابل انتخاب هستند.</p>
 <div class="table-wrap"><table><thead><tr><th>نام گزارش</th><th>فایل</th><th>روزهای حضور</th><th>زمان آپلود</th><th>عملیات</th></tr></thead><tbody>
-{% for it in items %}
+{% for it in import_rows %}
 <tr><td>{{ it.name }}</td><td><bdi>{{ it.imp.filename }}</bdi></td><td>{{ it.days }}</td><td><bdi>{{ it.uploaded }}</bdi></td>
 <td>{% if it.report_id %}<a class="btn outline btn-sm" href="/reports?report_id={{ it.report_id }}">گزارش</a>{% endif %}
 {% if user.role == 'admin' %}<a class="btn outline btn-sm" style="color:#a43d39" href="/imports/{{ it.imp.id }}/delete">حذف گزارش</a>{% endif %}</td></tr>
