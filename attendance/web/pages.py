@@ -501,7 +501,7 @@ def add_correction(
 # ------------------------------------------------------------------ group registration
 
 @router.get('/group')
-def group_page(request: Request, user: User = Depends(require('operator')), db: Session = Depends(get_db)):
+def group_page(request: Request, user: User = Depends(require(*CAN_UPLOAD)), db: Session = Depends(get_db)):
     from attendance.services.jalali import to_jalali
     from datetime import date as _date
     employees = db.scalars(select(Employee).where(Employee.status == 'active').order_by(Employee.name)).all()
@@ -515,7 +515,7 @@ def group_leave(
     employee_ids: list[int] = Form(default=[]),
     local_day_from: str = Form(''), local_day_to: str = Form(''),
     leave_type: str = Form('مرخصی'), csrf_token: str = Form(''),
-    user: User = Depends(require('operator')), db: Session = Depends(get_db),
+    user: User = Depends(require(*CAN_UPLOAD)), db: Session = Depends(get_db),
 ):
     check_csrf(request, csrf_token)
     from attendance.services.jalali import parse_jalali
@@ -559,7 +559,7 @@ def group_punch(
     local_day: str = Form(''),
     punch_time_in: str = Form(''), punch_time_out: str = Form(''),
     csrf_token: str = Form(''),
-    user: User = Depends(require('operator')), db: Session = Depends(get_db),
+    user: User = Depends(require(*CAN_UPLOAD)), db: Session = Depends(get_db),
 ):
     check_csrf(request, csrf_token)
     import re as _re, secrets as _sec
