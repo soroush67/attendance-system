@@ -146,17 +146,20 @@ class WorkSettings(Base):
 
 
 class LeaveDay(Base):
-    """مرخصی ثبت‌شده برای یک کارمند در یک روز."""
+    """مرخصی ثبت‌شده برای یک کارمند در یک روز.
+    start_time/end_time=None → تمام روز؛ مقداردار → مرخصی ساعتی (HH:MM:SS)."""
     __tablename__ = 'leave_days'
     id: Mapped[int] = mapped_column(primary_key=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey('employees.id'), nullable=False)
-    local_day: Mapped[str] = mapped_column(String(10), nullable=False)   # YYYY-MM-DD شمسی
+    local_day: Mapped[str] = mapped_column(String(10), nullable=False)   # YYYY-MM-DD gregorian
     leave_type: Mapped[str] = mapped_column(String(30), default='مرخصی')
+    start_time: Mapped[str | None] = mapped_column(String(8), nullable=True)  # HH:MM:SS یا null
+    end_time: Mapped[str | None] = mapped_column(String(8), nullable=True)    # HH:MM:SS یا null
     actor_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (
-        UniqueConstraint('employee_id', 'local_day', name='uq_leave_employee_day'),
         Index('ix_leave_days_local_day', 'local_day'),
+        Index('ix_leave_days_employee_day', 'employee_id', 'local_day'),
     )
 
 

@@ -20,14 +20,32 @@
 <tr><td>{{ e.name }}</td><td><bdi>{{ e.device_id }}</bdi></td>
 <td><span class="pill {{ 'warn' if e.status == 'suspended' else 'error' if e.status == 'deleted' else '' }}">{{ status_labels[e.status] }}</span></td>
 {% if user.role in ('admin', 'operator') %}<td>
-  <a href="/employees/{{ e.id }}/monthly" class="btn outline btn-sm">کارکرد ماهانه</a>
+  <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap">
+    <a href="/employees/{{ e.id }}/monthly" class="btn outline btn-sm">کارکرد ماهانه</a>
+    {% if user.role == 'admin' %}
+    <form method="post" action="/employees/{{ e.id }}/status" style="display:inline-flex;align-items:center;gap:5px;margin:0"><input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <select name="status" aria-label="وضعیت" style="width:auto">{% for k, v in status_labels.items() %}<option value="{{ k }}" {{ 'selected' if k == e.status }}>{{ v }}</option>{% endfor %}</select><button class="outline btn-sm">ثبت وضعیت</button></form>
+    <button class="outline btn-sm" onclick="toggleEdit({{ e.id }})">ویرایش</button>
+    {% if e.status != 'deleted' %}<a href="/employees/{{ e.id }}/delete" class="btn outline btn-sm" style="color:#a43d39">حذف کارمند</a>{% endif %}
+    {% endif %}
+  </div>
   {% if user.role == 'admin' %}
-  <form method="post" action="/employees/{{ e.id }}/status" class="actions"><input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <select name="status" aria-label="وضعیت">{% for k, v in status_labels.items() %}<option value="{{ k }}" {{ 'selected' if k == e.status }}>{{ v }}</option>{% endfor %}</select><button class="outline btn-sm">ثبت وضعیت</button></form>
-  <details><summary>ویرایش</summary><form class="actions" method="post" action="/employees/{{ e.id }}/edit"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input name="name" value="{{ e.name }}" aria-label="نام" required><input name="device_id" value="{{ e.device_id }}" aria-label="شماره دستگاه" dir="ltr" required><button class="btn-sm">ذخیره</button></form></details>
-  {% if e.status != 'deleted' %}<a href="/employees/{{ e.id }}/delete" class="btn outline btn-sm" style="color:#a43d39">حذف کارمند</a>{% endif %}
+  <div id="edit-{{ e.id }}" style="display:none;margin-top:6px">
+    <form style="display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap" method="post" action="/employees/{{ e.id }}/edit">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input name="name" value="{{ e.name }}" aria-label="نام" required style="width:auto">
+      <input name="device_id" value="{{ e.device_id }}" aria-label="شماره دستگاه" dir="ltr" required style="width:auto">
+      <button class="btn-sm">ذخیره</button>
+    </form>
+  </div>
   {% endif %}
 </td>{% endif %}</tr>
 {% else %}<tr><td colspan="4" class="muted">کارمندی یافت نشد.</td></tr>{% endfor %}
 </tbody></table></div></div>
+<script>
+function toggleEdit(id) {
+  var d = document.getElementById('edit-' + id);
+  d.style.display = d.style.display === 'none' ? 'block' : 'none';
+}
+</script>
 {% endblock %}

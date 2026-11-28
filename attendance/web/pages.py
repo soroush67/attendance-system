@@ -344,24 +344,105 @@ def reports(request: Request, start_jalali: str = '', end_jalali: str = '',
 
 @router.post('/reports/leave-day')
 def reports_leave_day(request: Request, employee_id: int = Form(...), day_jalali: str = Form(...),
+                      leave_type: str = Form('مرخصی'),
+                      start_time: str = Form(''), end_time: str = Form(''),
+                      leave_id: int = Form(0),
                       csrf_token: str = Form(''), back: str = Form(''),
-                      user: User = Depends(require('admin')), db: Session = Depends(get_db)):
+                      user: User = Depends(require(*CAN_UPLOAD)), db: Session = Depends(get_db)):
     check_csrf(request, csrf_token)
     emp = db.get(Employee, employee_id)
     if not emp:
         raise HTTPException(404)
     day = parse_jalali(day_jalali).isoformat()
-    existing = db.scalar(select(LeaveDay).where(LeaveDay.employee_id == employee_id,
-                                                 LeaveDay.local_day == day))
-    if existing:
-        db.delete(existing)
-        msg = f'مرخصی {emp.name} در {day_jalali} لغو شد'
-    else:
-        db.add(LeaveDay(employee_id=employee_id, local_day=day, leave_type='مرخصی'))
-        msg = f'مرخصی {emp.name} در {day_jalali} ثبت شد'
-    audit(db, user.username, 'leave_toggle', f'emp={employee_id} day={day}')
+    # حذف یک مرخصی خاص (با leave_id)
+    if leave_id:
+        existing = db.get(LeaveDay, leave_id)
+        if existing and existing.employee_id == employee_id:
+            db.delete(existing)
+            audit(db, user.username, 'leave_remove', f'emp={employee_id} day={day} id={leave_id}')
+            db.commit()
+        return redirect(back or '/reports', f'مرخصی {emp.name} لغو شد')
+    # ثبت مرخصی جدید (تمام روز یا ساعتی)
+    st = start_time.strip() or None
+    et = end_time.strip() or None
+    if st and len(st) == 5:
+        st += ':00'
+    if et and len(et) == 5:
+        et += ':00'
+    db.add(LeaveDay(employee_id=employee_id, local_day=day,
+                    leave_type=leave_type, start_time=st, end_time=et, actor_id=user.id))
+    audit(db, user.username, 'leave_add', f'emp={employee_id} day={day} type={leave_type}')
     db.commit()
-    return redirect(back or '/reports', msg)
+    kind = f'{st}–{et}' if st else 'تمام روز'
+    return redirect(back or '/reports', f'مرخصی {emp.name} در {day_jalali} ({kind}) ثبت شد')
+
+
+@router.post('/reports/add-record')
+def reports_add_record(request: Request, employee_id: int = Form(...), day_jalali: str = Form(...),
+                       punch_time: str = Form(...), punch_dir: str = Form('in'),
+                       csrf_token: str = Form(''), back: str = Form(''),
+                       user: User = Depends(require(*CAN_UPLOAD)), db: Session = Depends(get_db)):
+    """ثبت یک پانچ دستی (ورود یا خروج) برای کارمند."""
+    import re as _re
+    check_csrf(request, csrf_token)
+    emp = db.get(Employee, employee_id)
+    if not emp:
+        raise HTTPException(404)
+    if not _re.fullmatch(r'\d{2}:\d{2}(:\d{2})?', punch_time.strip()):
+        return redirect(back or '/reports', 'فرمت ساعت نامعتبر است (HH:MM)', error=True)
+    pt = punch_time.strip()
+    if len(pt) == 5:
+        pt += ':00'
+    try:
+        greg = parse_jalali(day_jalali)
+    except ValueError:
+        return redirect(back or '/reports', 'تاریخ نامعتبر است', error=True)
+    tz = get_settings().timezone
+    from datetime import datetime as _dt, time as _time
+    h, m, s = map(int, pt.split(':'))
+    stamp = _dt.combine(greg, _time(h, m, s)).astimezone(tz).astimezone(__import__('datetime').timezone.utc)
+    day_iso = greg.isoformat()
+    import time as _time_mod
+    # یک ReportSet مشترک برای همه پانچ‌های دستی این روز (یا ایجاد جدید)
+    rset_name = f'دستی {day_jalali}'
+    rset = db.scalar(select(ReportSet).where(ReportSet.name == rset_name))
+    if not rset:
+        digest = f'manual_{day_iso}'
+        imp = db.scalar(select(Import).where(Import.digest == digest))
+        if not imp:
+            imp = Import(filename=f'manual_{day_jalali}', digest=digest, uploader_id=user.id,
+                         accepted=0, rejected=0, note='ثبت دستی')
+            db.add(imp)
+            db.flush()
+        rset = ReportSet(import_id=imp.id, name=rset_name)
+        db.add(rset)
+        db.flush()
+    # Import جداگانه برای هر پانچ (برای ثبت uploader و زمان)
+    punch_digest = f'manual_{user.username}_{day_iso}_{pt}_{int(_time_mod.time()*1000)}'
+    punch_imp = Import(filename=f'manual_{day_jalali}', digest=punch_digest,
+                       uploader_id=user.id, accepted=1, rejected=0, note=f'پانچ دستی {pt}')
+    db.add(punch_imp)
+    db.flush()
+    # ReportDay — اگر قبلاً وجود دارد نادیده گیر
+    existing_rd = db.scalar(select(ReportDay).where(
+        ReportDay.report_id == rset.id,
+        ReportDay.device_id == emp.device_id,
+        ReportDay.local_day == day_iso))
+    if not existing_rd:
+        db.add(ReportDay(report_id=rset.id, device_id=emp.device_id, local_day=day_iso))
+        db.flush()
+    db.add(ReportPunch(report_id=rset.id, device_id=emp.device_id,
+                       local_day=day_iso, occurred_at=stamp))
+    # Log هم ثبت شود تا در گزارش‌های Log‌محور هم دیده شود
+    existing_log = db.scalar(select(Log).where(Log.device_id == emp.device_id,
+                                               Log.occurred_at == stamp))
+    if not existing_log:
+        db.add(Log(device_id=emp.device_id, occurred_at=stamp, source_import_id=punch_imp.id))
+    audit(db, user.username, 'manual_punch',
+          f'emp={employee_id} day={day_iso} time={pt} dir={punch_dir}')
+    db.commit()
+    return redirect(back or '/reports',
+                    f'پانچ {"ورود" if punch_dir == "in" else "خروج"} {emp.name} در {day_jalali} {pt} ثبت شد')
 
 
 @router.post('/reports/delete-day')

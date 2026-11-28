@@ -91,7 +91,7 @@
   <table id="report-table">
     <thead><tr>
       {% for h in headers %}<th class="sortable" onclick="sortTable(this)" data-col="{{ loop.index0 }}">{{ h }}<span class="sort-ind"></span></th>{% endfor %}
-      {% if user.role == 'admin' and form.period == 'daily' %}<th>عملیات</th>{% endif %}
+      {% if user.role in ('admin','operator') and form.period == 'daily' %}<th>عملیات</th>{% endif %}
     </tr></thead>
     <tbody>
     {% for row in rows %}
@@ -110,22 +110,23 @@
         <td>{{ row[2] }}</td>
         <td>{{ row[3] }}</td>
         <td>{{ row[4] }}</td>
-        {% if user.role == 'admin' %}
-        <td style="white-space:nowrap">
-          <form method="post" action="/reports/leave-day" style="display:inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf }}">
-            <input type="hidden" name="employee_id" value="{{ emp_id }}">
-            <input type="hidden" name="day_jalali" value="{{ row[2] }}">
-            <input type="hidden" name="back" value="{{ back_url }}">
-            <button class="btn outline btn-sm" style="{{ 'color:#b87d00' if on_leave else '' }}" title="{{ 'لغو مرخصی' if on_leave else 'ثبت مرخصی' }}">{{ '✕ مرخصی' if on_leave else '✦ مرخصی' }}</button>
-          </form>
+        {% if user.role == 'admin' or user.role == 'operator' %}
+        <td style="white-space:nowrap;display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+          <button class="btn outline btn-sm" style="{{ 'color:#b87d00' if on_leave else '' }}"
+                  onclick="openLeaveModal('{{ emp_id }}','{{ row[2] }}','{{ back_url }}')"
+                  title="{{ 'ویرایش مرخصی' if on_leave else 'ثبت مرخصی' }}">{{ '✦ مرخصی' }}</button>
+          <button class="btn outline btn-sm" style="color:#1a7a4a"
+                  onclick="openPunchModal('{{ emp_id }}','{{ row[2] }}','{{ back_url }}')"
+                  title="افزودن پانچ">+ پانچ</button>
+          {% if user.role == 'admin' %}
           <form method="post" action="/reports/delete-day" style="display:inline" onsubmit="return confirm('ترددهای این روز حذف شود؟')">
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <input type="hidden" name="employee_id" value="{{ emp_id }}">
             <input type="hidden" name="day_jalali" value="{{ row[2] }}">
             <input type="hidden" name="back" value="{{ back_url }}">
-            <button class="btn outline btn-sm danger" style="font-size:11px">حذف روز</button>
+            <button class="btn outline btn-sm danger" style="font-size:11px">حذف</button>
           </form>
+          {% endif %}
         </td>
         {% endif %}
       {% else %}
@@ -133,12 +134,78 @@
       {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="{{ headers|length + (1 if user.role == 'admin' and form.period == 'daily' else 0) }}" class="muted">در این بازه رکوردی وجود ندارد.</td></tr>
+    <tr><td colspan="{{ headers|length + (1 if user.role in ('admin','operator') and form.period == 'daily' else 0) }}" class="muted">در این بازه رکوردی وجود ندارد.</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
+
+{# ── مودال مرخصی ── #}
+<div id="leave-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center">
+  <div class="card" style="min-width:320px;max-width:420px;width:90%;margin:0">
+    <h3 style="margin-top:0">ثبت مرخصی</h3>
+    <form method="post" action="/reports/leave-day" id="leave-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="employee_id" id="lv-emp">
+      <input type="hidden" name="day_jalali" id="lv-day">
+      <input type="hidden" name="back" id="lv-back">
+      <div class="fields" style="gap:10px">
+        <div>
+          <label>نوع مرخصی</label>
+          <select name="leave_type">
+            <option value="مرخصی">مرخصی روزانه</option>
+            <option value="مرخصی استعلاجی">مرخصی استعلاجی</option>
+            <option value="مرخصی بدون حقوق">مرخصی بدون حقوق</option>
+            <option value="مرخصی ساعتی">مرخصی ساعتی</option>
+          </select>
+        </div>
+        <div id="lv-time-row" style="display:none">
+          <label>ساعت شروع</label>
+          <input type="time" name="start_time" id="lv-start" placeholder="08:00">
+        </div>
+        <div id="lv-time-row2" style="display:none">
+          <label>ساعت پایان</label>
+          <input type="time" name="end_time" id="lv-end" placeholder="12:00">
+        </div>
+      </div>
+      <div class="actions" style="margin-top:14px">
+        <button type="submit" class="btn">ثبت مرخصی</button>
+        <button type="button" class="btn outline" onclick="closeModal('leave-modal')">انصراف</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── مودال افزودن پانچ ── #}
+<div id="punch-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center">
+  <div class="card" style="min-width:320px;max-width:420px;width:90%;margin:0">
+    <h3 style="margin-top:0">افزودن پانچ دستی</h3>
+    <form method="post" action="/reports/add-record" id="punch-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="employee_id" id="pn-emp">
+      <input type="hidden" name="day_jalali" id="pn-day">
+      <input type="hidden" name="back" id="pn-back">
+      <div class="fields" style="gap:10px">
+        <div>
+          <label>ساعت پانچ</label>
+          <input type="time" name="punch_time" id="pn-time" required>
+        </div>
+        <div>
+          <label>نوع</label>
+          <select name="punch_dir">
+            <option value="in">ورود</option>
+            <option value="out">خروج</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions" style="margin-top:14px">
+        <button type="submit" class="btn">ثبت پانچ</button>
+        <button type="button" class="btn outline" onclick="closeModal('punch-modal')">انصراف</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <style>
 th.sortable{cursor:pointer;user-select:none}
@@ -146,14 +213,45 @@ th.sortable:hover{background:var(--primary-soft);color:var(--primary)}
 .sort-ind::after{content:" ↕";opacity:.4;font-size:10px}
 th.asc .sort-ind::after{content:" ↑";opacity:1}
 th.desc .sort-ind::after{content:" ↓";opacity:1}
+#leave-modal.open,#punch-modal.open{display:flex}
 </style>
 
 <script>
+function openLeaveModal(empId, dayJalali, back) {
+  document.getElementById('lv-emp').value = empId;
+  document.getElementById('lv-day').value = dayJalali;
+  document.getElementById('lv-back').value = back;
+  document.getElementById('leave-modal').classList.add('open');
+  document.getElementById('leave-modal').style.display = 'flex';
+}
+function openPunchModal(empId, dayJalali, back) {
+  document.getElementById('pn-emp').value = empId;
+  document.getElementById('pn-day').value = dayJalali;
+  document.getElementById('pn-back').value = back;
+  document.getElementById('punch-modal').classList.add('open');
+  document.getElementById('punch-modal').style.display = 'flex';
+}
+function closeModal(id) {
+  var el = document.getElementById(id);
+  el.classList.remove('open');
+  el.style.display = 'none';
+}
+// نمایش فیلدهای ساعت برای مرخصی ساعتی
+document.getElementById('leave-form').querySelector('[name=leave_type]').addEventListener('change', function() {
+  var hourly = this.value === 'مرخصی ساعتی';
+  document.getElementById('lv-time-row').style.display = hourly ? '' : 'none';
+  document.getElementById('lv-time-row2').style.display = hourly ? '' : 'none';
+});
+// بستن با کلیک بیرون
+['leave-modal','punch-modal'].forEach(function(id) {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === this) closeModal(id);
+  });
+});
 function sortTable(th) {
   var table = document.getElementById('report-table');
   var col = parseInt(th.dataset.col);
   var asc = !th.classList.contains('asc');
-  // reset all
   table.querySelectorAll('th.sortable').forEach(function(t){t.classList.remove('asc','desc')});
   th.classList.add(asc ? 'asc' : 'desc');
   var rows = Array.from(table.tBodies[0].rows);
