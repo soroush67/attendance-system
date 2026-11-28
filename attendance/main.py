@@ -62,12 +62,12 @@ def create_app() -> FastAPI:
         else:
             h['Cache-Control'] = 'private, no-store'
             h['Pragma'] = 'no-cache'
-        user = getattr(request.state, 'user', None)
+        user_id = getattr(request.state, 'user_id', None)
         log.info(json.dumps({
             'ts': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'level': 'info', 'request_id': request_id,
             'method': request.method, 'path': request.url.path, 'status': response.status_code,
             'duration_ms': round((time.monotonic() - started) * 1000, 1),
-            'ip': request.client.host if request.client else None, 'user_id': user.id if user else None,
+            'ip': request.client.host if request.client else None, 'user_id': user_id,
         }))
         return response
 

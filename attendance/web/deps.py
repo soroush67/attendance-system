@@ -35,6 +35,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if user.must_change_password and request.url.path not in ('/account/password', '/logout'):
         raise MustChangePassword()
     request.state.user = user
+    request.state.user_id = user.id
     return user
 
 
