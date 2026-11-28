@@ -786,7 +786,7 @@ def attendance_leave(
     request: Request,
     employee_id: int = Form(0), local_day: str = Form(''),
     leave_type: str = Form('مرخصی'), csrf_token: str = Form(''),
-    user: User = Depends(require('operator')),
+    user: User = Depends(require(*CAN_UPLOAD)),
     db: Session = Depends(get_db),
 ):
     check_csrf(request, csrf_token)
@@ -815,7 +815,7 @@ def attendance_correction(
     employee_id: int = Form(0), local_day: str = Form(''),
     punch_time: str = Form(''), punch_type: str = Form('in'),
     reason: str = Form(''), csrf_token: str = Form(''),
-    user: User = Depends(require('operator')),
+    user: User = Depends(require(*CAN_UPLOAD)),
     db: Session = Depends(get_db),
 ):
     check_csrf(request, csrf_token)
@@ -842,7 +842,7 @@ def attendance_manual(
     request: Request,
     employee_id: int = Form(0), local_day: str = Form(''),
     punch_time: str = Form(''), csrf_token: str = Form(''),
-    user: User = Depends(require('operator')),
+    user: User = Depends(require(*CAN_UPLOAD)),
     db: Session = Depends(get_db),
 ):
     """ثبت دستی یک پانچ جدید (import مجازی می‌سازد)."""
