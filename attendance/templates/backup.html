@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+  <h2>سلامت پایگاه داده</h2>
+  <p class="muted">این صفحه آمار لحظه‌ای داده‌های سامانه را نشان می‌دهد و امکان دریافت نسخه پشتیبان SQL را فراهم می‌کند.</p>
+  <div class="table-wrap"><table>
+    <tbody>
+    {% for label, val in stats %}
+    <tr><th scope="row" style="width:200px">{{ label }}</th><td><bdi>{{ val }}</bdi></td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>دریافت نسخه پشتیبان</h2>
+  <p class="muted">
+    با کلیک دکمه زیر یک فایل <code>.sql</code> کامل از پایگاه داده (pg_dump) دریافت می‌کنید.
+    فایل شامل تمام جداول، داده‌ها و ساختار است و برای بازیابی کامل کافی است.
+  </p>
+  <p class="muted">⚠ این عملیات روی سرور اجرا می‌شود و چند ثانیه طول می‌کشد.</p>
+  <a class="btn" href="/backup/download">دانلود backup.sql</a>
+</div>
+
+<div class="card">
+  <h2>راهنمای بازیابی</h2>
+  <div class="muted" style="line-height:2.2">
+    <p>برای بازیابی از فایل دریافت‌شده:</p>
+    <ol style="padding-right:1.2rem">
+      <li>یک پایگاه داده خالی PostgreSQL بسازید</li>
+      <li>دستور زیر را اجرا کنید:</li>
+    </ol>
+    <pre dir="ltr" style="background:var(--panel-2);padding:.8rem 1rem;border-radius:.5rem;overflow-x:auto">psql -U &lt;user&gt; -d &lt;dbname&gt; -f attendance_backup_YYYY-MM-DD.sql</pre>
+    <p>بکاپ از نوع Logical Dump است؛ Point-In-Time Recovery فعال نیست.</p>
+  </div>
+</div>
+{% endblock %}

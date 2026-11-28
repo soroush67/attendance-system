@@ -22,7 +22,7 @@
     <nav aria-label="منوی اصلی">
       {% set nav_items = [('dashboard','/','نمای کلی','◈'),('attendance','/attendance','مدیریت تردد','⊞'),('imports','/imports','بارگذاری فایل','⇧'),('reports','/reports','گزارش تردد','▤'),('employees','/employees','مدیریت پرسنل','♙')] %}
       {% if user.role in ('admin','operator') %}{% set nav_items = nav_items + [('group','/group','ثبت گروهی','▦')] %}{% endif %}
-      {% if user.role == 'admin' %}{% set nav_items = nav_items + [('users','/users','مدیریت کاربران','♧'),('audit','/audit','تاریخچه تغییرات','◷')] %}{% endif %}
+      {% if user.role == 'admin' %}{% set nav_items = nav_items + [('backup','/backup','پشتیبان‌گیری','◴'),('users','/users','مدیریت کاربران','♧'),('audit','/audit','تاریخچه تغییرات','◷')] %}{% endif %}
       {% for key, url, label, icon in nav_items %}<a class="{{ 'selected' if key == section else '' }}" href="{{ url }}" {% if key == section %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ icon }}</span><span>{{ label }}</span></a>{% endfor %}
     </nav>
     <div class="side-footer">سامانه مدیریت تردد کارکنان</div>
