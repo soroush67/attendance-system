@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card"><h2>ایجاد کاربر سامانه</h2>
+<form method="post" action="/users" class="fields">
+  <div><label for="u-name">نام کاربری</label><input id="u-name" name="username" required maxlength="80" dir="ltr" pattern="[A-Za-z0-9._\-]+"></div>
+  <div><label for="u-pass">گذرواژه موقت (حداقل {{ min_length }} نویسه)</label><input id="u-pass" name="password" type="password" minlength="{{ min_length }}" autocomplete="new-password" dir="ltr" required></div>
+  <div><label for="u-role">نقش</label><select id="u-role" name="role">{% for k, v in ROLES.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+  <div><input type="hidden" name="csrf_token" value="{{ csrf }}"><button>ایجاد حساب</button></div>
+</form><p class="hint">کاربر جدید در اولین ورود باید گذرواژه موقت را تغییر دهد.</p></div>
+<div class="card table-wrap"><table><thead><tr><th>کاربر</th><th>نقش</th><th>وضعیت</th><th>آخرین ورود</th><th>عملیات</th></tr></thead><tbody>
+{% for u in users %}
+<tr><td><bdi>{{ u.username }}</bdi></td><td>{{ ROLES.get(u.role, u.role) }}</td>
+<td>{% if not u.active %}<span class="pill error">غیرفعال</span>{% elif u.locked_until and u.locked_until > now %}<span class="pill warn">قفل موقت</span>{% else %}<span class="pill">فعال</span>{% endif %}</td>
+<td><bdi>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '—' }}</bdi></td>
+<td>{% if u.id != user.id %}
+  <form method="post" action="/users/{{ u.id }}/toggle" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="outline btn-sm">{{ 'غیرفعال‌سازی' if u.active else 'فعال‌سازی' }}</button></form>
+  <details><summary>نقش و گذرواژه</summary>
+    <form method="post" action="/users/{{ u.id }}/role" class="actions"><input type="hidden" name="csrf_token" value="{{ csrf }}"><select name="role" aria-label="نقش">{% for k, v in ROLES.items() %}<option value="{{ k }}" {{ 'selected' if k == u.role }}>{{ v }}</option>{% endfor %}</select><button class="btn-sm">تغییر نقش</button></form>
+    <form method="post" action="/users/{{ u.id }}/reset" class="actions"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input name="password" type="password" minlength="{{ min_length }}" placeholder="گذرواژه موقت جدید" aria-label="گذرواژه موقت جدید" autocomplete="new-password" dir="ltr" required><button class="btn-sm">بازنشانی و رفع قفل</button></form>
+  </details>
+{% else %}<span class="muted">حساب شما</span>{% endif %}</td></tr>
+{% endfor %}
+</tbody></table></div>
+{% endblock %}

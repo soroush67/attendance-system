@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import flash with context %}
+{% block bare %}
+<div class="card login">
+  <h1>ورود به سامانه</h1>
+  <p class="muted">لطفاً اطلاعات حساب کاربری خود را وارد کنید.</p>
+  {{ flash() }}
+  <form method="post" action="/login" autocomplete="on">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label for="username">نام کاربری</label>
+    <input id="username" name="username" autocomplete="username" maxlength="80" dir="ltr" required autofocus>
+    <label for="password">گذرواژه</label>
+    <input id="password" type="password" name="password" autocomplete="current-password" maxlength="256" dir="ltr" required>
+    <button style="width:100%">ورود</button>
+  </form>
+</div>
+{% endblock %}

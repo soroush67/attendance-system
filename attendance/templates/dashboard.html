@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="grid">
+  <div class="card"><span class="muted">کارکنان فعال</span><div class="stat">{{ stats.employees }}</div></div>
+  <div class="card"><span class="muted">ترددهای ثبت‌شده</span><div class="stat">{{ stats.punches }}</div></div>
+  <div class="card"><span class="muted">فایل‌های پردازش‌شده</span><div class="stat">{{ stats.imports }}</div></div>
+</div>
+<div class="card"><h2>دسترسی سریع</h2><p class="muted">برای ثبت ترددهای جدید، فایل خروجی دستگاه را آپلود کنید؛ گزارش‌ها از اطلاعات ذخیره‌شده ساخته می‌شوند.</p>
+<div class="actions">{% if can_upload %}<a class="btn" href="/imports">آپلود فایل دستگاه</a>{% endif %}<a class="btn outline" href="/reports">مشاهده گزارش‌ها</a></div></div>
+{% endblock %}

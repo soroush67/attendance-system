@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+  <div class="page-toolbar">
+    <h2>مدیریت تردد روزانه</h2>
+    <div class="day-nav">
+      <a class="btn outline btn-sm" href="/attendance?day={{ prev_day }}{% if view_filter %}&view_filter={{ view_filter }}{% endif %}">‹ روز قبل</a>
+      <strong class="day-label">{{ day }}</strong>
+      <a class="btn outline btn-sm" href="/attendance?day={{ next_day }}{% if view_filter %}&view_filter={{ view_filter }}{% endif %}">روز بعد ›</a>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <a class="btn btn-sm {% if not view_filter %}active{% else %}outline{% endif %}" href="/attendance?day={{ day }}">همه</a>
+    <a class="btn btn-sm {% if view_filter=='absent' %}active{% else %}outline{% endif %}" href="/attendance?day={{ day }}&view_filter=absent">غایبین</a>
+    <a class="btn btn-sm {% if view_filter=='leave' %}active{% else %}outline{% endif %}" href="/attendance?day={{ day }}&view_filter=leave">مرخصی</a>
+    <a class="btn btn-sm {% if view_filter=='incomplete' %}active{% else %}outline{% endif %}" href="/attendance?day={{ day }}&view_filter=incomplete">تردد ناقص</a>
+  </div>
+
+  <div class="table-wrap"><table>
+    <thead><tr>
+      <th>نام کارمند</th>
+      <th>کد دستگاه</th>
+      <th>وضعیت</th>
+      <th>اولین ورود</th>
+      <th>آخرین خروج</th>
+      <th>تعداد پانچ</th>
+      <th>کارکرد</th>
+      <th>عملیات</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/employees/{{ r.emp.id }}/monthly">{{ r.emp.name }}</a></td>
+      <td><bdi>{{ r.emp.device_id }}</bdi></td>
+      <td>
+        {% if r.status == STATUS_ABSENT %}<span class="badge s-absent">غایب</span>
+        {% elif r.status == STATUS_LEAVE %}<span class="badge s-leave">مرخصی</span>
+        {% elif r.status == 'کسری' %}<span class="badge s-deficit">کسری</span>
+        {% elif r.status == 'اضافه‌کاری' %}<span class="badge s-overtime">اضافه‌کاری</span>
+        {% elif r.status == 'تعطیل' %}<span class="badge s-holiday">تعطیل</span>
+        {% else %}<span class="badge s-present">حاضر</span>{% endif %}
+      </td>
+      <td>{{ r.first or '—' }}</td>
+      <td>{{ r.last or '—' }}</td>
+      <td>{{ r.punch_count }}</td>
+      <td>
+        {% if r.worked is not none %}
+          {{ (r.worked // 60)|int }}:{{ '%02d'|format(r.worked % 60) }}
+        {% else %}—{% endif %}
+      </td>
+      <td class="ops-cell">
+        {% if user.role in ('admin','operator') %}
+        <button class="btn outline btn-sm"
+          onclick="openLeave({{ r.emp.id }}, '{{ r.emp.name }}', {{ r.on_leave|lower }})">
+          {% if r.on_leave %}لغو مرخصی{% else %}ثبت مرخصی{% endif %}
+        </button>
+        <button class="btn outline btn-sm"
+          onclick="openCorrection({{ r.emp.id }}, '{{ r.emp.name }}')">اصلاح</button>
+        <button class="btn outline btn-sm"
+          onclick="openManual({{ r.emp.id }}, '{{ r.emp.name }}')">پانچ دستی</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="muted">کارمندی یافت نشد.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+{# ---- modal مرخصی ---- #}
+<div id="modal-leave" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h3 id="leave-title">ثبت مرخصی</h3>
+    <form method="post" action="/attendance/leave">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="local_day" value="{{ day }}">
+      <input type="hidden" id="leave-emp-id" name="employee_id" value="">
+      <div class="fields">
+        <div>
+          <label>نوع مرخصی</label>
+          <select name="leave_type">
+            <option>مرخصی</option>
+            <option>مرخصی استحقاقی</option>
+            <option>مرخصی استعلاجی</option>
+            <option>مرخصی ساعتی</option>
+            <option>ماموریت</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn" id="leave-btn">ثبت مرخصی</button>
+          <button type="button" class="btn outline" onclick="closeModal('modal-leave')">انصراف</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---- modal اصلاح تردد ---- #}
+<div id="modal-correction" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h3 id="correction-title">اصلاح تردد</h3>
+    <form method="post" action="/attendance/correction">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="local_day" value="{{ day }}">
+      <input type="hidden" id="corr-emp-id" name="employee_id" value="">
+      <div class="fields">
+        <div>
+          <label>نوع تردد</label>
+          <select name="punch_type">
+            <option value="in">ورود</option>
+            <option value="out">خروج</option>
+          </select>
+        </div>
+        <div>
+          <label>ساعت (HH:MM)</label>
+          <input type="text" name="punch_time" placeholder="مثلاً ۰۸:۳۰" maxlength="8" required>
+        </div>
+        <div>
+          <label>دلیل</label>
+          <select name="reason">
+            <option>درخواست اصلاح تردد</option>
+            <option>فراموشی ثبت تردد</option>
+            <option>ماموریت</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn">ثبت اصلاح</button>
+          <button type="button" class="btn outline" onclick="closeModal('modal-correction')">انصراف</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---- modal پانچ دستی ---- #}
+<div id="modal-manual" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h3 id="manual-title">ثبت پانچ دستی</h3>
+    <form method="post" action="/attendance/manual">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="local_day" value="{{ day }}">
+      <input type="hidden" id="manual-emp-id" name="employee_id" value="">
+      <div class="fields">
+        <div>
+          <label>ساعت (HH:MM)</label>
+          <input type="text" name="punch_time" placeholder="مثلاً ۱۴:۰۰" maxlength="8" required>
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn">ثبت پانچ</button>
+          <button type="button" class="btn outline" onclick="closeModal('modal-manual')">انصراف</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.page-toolbar { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.page-toolbar h2 { margin:0; }
+.day-nav { display:flex; align-items:center; gap:.5rem; }
+.day-label { font-size:1.05rem; min-width:7rem; text-align:center; }
+.filter-bar { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:1rem; }
+.filter-bar .active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.ops-cell { white-space:nowrap; display:flex; gap:.3rem; flex-wrap:wrap; }
+.badge { display:inline-block; padding:.15rem .5rem; border-radius:.3rem; font-size:.82rem; }
+.s-present  { background:#d4edda; color:#155724; }
+.s-deficit  { background:#fff3cd; color:#856404; }
+.s-absent   { background:#f8d7da; color:#721c24; }
+.s-leave    { background:#cce5ff; color:#004085; }
+.s-overtime { background:#e2d9f3; color:#3d1a78; }
+.s-holiday  { background:#e9ecef; color:#495057; }
+@media (prefers-color-scheme: dark) {
+  .s-present  { background:#1a4a24; color:#8de0a1; }
+  .s-deficit  { background:#3d2f00; color:#ffd966; }
+  .s-absent   { background:#4a1a1f; color:#f1aeb5; }
+  .s-leave    { background:#003366; color:#9ecfff; }
+  .s-overtime { background:#2a1a4a; color:#c5adf4; }
+  .s-holiday  { background:#2a2a2a; color:#adb5bd; }
+}
+</style>
+
+<script>
+function openLeave(empId, empName, onLeave) {
+  document.getElementById('leave-emp-id').value = empId;
+  document.getElementById('leave-title').textContent = (onLeave ? 'لغو مرخصی — ' : 'ثبت مرخصی — ') + empName;
+  document.getElementById('leave-btn').textContent = onLeave ? 'لغو مرخصی' : 'ثبت مرخصی';
+  document.getElementById('modal-leave').hidden = false;
+}
+function openCorrection(empId, empName) {
+  document.getElementById('corr-emp-id').value = empId;
+  document.getElementById('correction-title').textContent = 'اصلاح تردد — ' + empName;
+  document.getElementById('modal-correction').hidden = false;
+}
+function openManual(empId, empName) {
+  document.getElementById('manual-emp-id').value = empId;
+  document.getElementById('manual-title').textContent = 'پانچ دستی — ' + empName;
+  document.getElementById('modal-manual').hidden = false;
+}
+function closeModal(id) { document.getElementById(id).hidden = true; }
+document.querySelectorAll('.modal-backdrop').forEach(m => m.addEventListener('click', e => { if(e.target===m) m.hidden=true; }));
+</script>
+{% endblock %}

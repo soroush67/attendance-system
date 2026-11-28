@@ -1,0 +1,2 @@
+{% macro theme_toggle() %}<button type="button" class="theme-toggle" data-theme-toggle aria-label="تغییر حالت روز و شب" aria-pressed="false"><span class="theme-symbol" aria-hidden="true">☾</span><span class="theme-label">حالت شب</span></button>{% endmacro %}
+{% macro flash() %}{% if message %}<div class="msg" role="status">{{ message }}</div>{% endif %}{% if error %}<div class="msg msg-error" role="alert">{{ error }}</div>{% endif %}{% endmacro %}

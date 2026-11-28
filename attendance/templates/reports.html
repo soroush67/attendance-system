@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card"><h2>گزارش‌گیری دلخواه حضور</h2>
+<form method="get"><div class="fields">
+  <div><label for="start">از تاریخ شمسی</label><input id="start" name="start_jalali" value="{{ form.start_jalali }}" placeholder="۱۴۰۵/۰۸/۰۱" required></div>
+  <div><label for="end">تا تاریخ شمسی</label><input id="end" name="end_jalali" value="{{ form.end_jalali }}" placeholder="۱۴۰۵/۰۸/۳۰" required></div>
+  <div><label for="report">گزارش</label><select id="report" name="report_id"><option value="0">تمام گزارش‌های نام‌گذاری‌شده</option>{% for id, name in reports_list %}<option value="{{ id }}" {{ 'selected' if id == form.report_id }}>{{ name }}</option>{% endfor %}</select></div>
+  <div><label for="period">نوع گزارش</label><select id="period" name="period">{% for k, v in periods.items() %}<option value="{{ k }}" {{ 'selected' if k == form.period }}>{{ v }}</option>{% endfor %}</select></div>
+  <div><button>نمایش گزارش</button></div>
+</div></form>
+<p class="muted">در حالت «تمام گزارش‌ها»، روزهای تکراری یک کارمند فقط یک بار شمرده می‌شوند. ساعت‌ها اولین و آخرین ثبت اثر انگشت در همان روز هستند و لزوماً ورود و خروج قطعی نیستند.</p>
+{% if report_error %}<div class="msg msg-error" role="alert">{{ report_error }}</div>{% endif %}
+<div class="actions">{% if can_export and download_query %}<a class="btn" href="/reports/download?{{ download_query }}">دانلود Excel</a>{% endif %}<span class="muted">{{ rows|length }} ردیف</span></div></div>
+<div class="card table-wrap"><table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>
+{% for row in rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% else %}<tr><td colspan="{{ headers|length }}" class="muted">در این بازه رکوردی وجود ندارد.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

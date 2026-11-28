@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card"><h2>حذف کارمند</h2>
+<p>آیا می‌خواهید <strong>{{ employee.name }}</strong> با شماره <strong><bdi>{{ employee.device_id }}</bdi></strong> را حذف کنید؟</p>
+<p class="muted">حذف به‌صورت منطقی انجام می‌شود: کارمند از فهرست اصلی پنهان می‌شود، اما سوابق حضور و غیاب او محفوظ می‌ماند و از فیلتر «نمایش حذف‌شده‌ها» قابل فعال‌سازی دوباره است.</p>
+<form method="post" action="/employees/{{ employee.id }}/delete" class="actions"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger">بله، حذف شود</button><a href="/employees" class="btn outline">انصراف</a></form></div>
+{% endblock %}

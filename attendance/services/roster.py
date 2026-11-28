@@ -1,10 +1,9 @@
 """Safe one-time (repeatable) Excel -> PostgreSQL employee seed.
 
-Usage:
-  python import_employees.py /imports/employees.xlsx --dry-run
-  python import_employees.py /imports/employees.xlsx --apply
+Usage (one-off admin process, see attendance/cli.py):
+  python -m attendance.cli import-employees /imports/employees.xlsx --dry-run
+  python -m attendance.cli import-employees /imports/employees.xlsx --apply
 """
-import argparse
 import sys
 from collections import Counter
 from pathlib import Path
@@ -12,7 +11,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 from sqlalchemy import select
 
-from main import Employee, SessionLocal
+from attendance.db import session_factory
+from attendance.models import Employee
 
 
 def clean_name(value):
@@ -69,7 +69,7 @@ def read_employees(path: Path):
 
 def run(path: Path, apply: bool):
     rows = read_employees(path)
-    with SessionLocal() as db:
+    with session_factory()() as db:
         ids = [code for code, _ in rows]
         existing = {employee.device_id: employee for employee in db.scalars(select(Employee).where(Employee.device_id.in_(ids)))}
         additions = [(code, name) for code, name in rows if code not in existing]
@@ -92,16 +92,3 @@ def run(path: Path, apply: bool):
         print(f'COMMITTED: {len(additions)} employee(s) added. Existing employees preserved.')
     return 0
 
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Import initial employee roster into PostgreSQL')
-    parser.add_argument('xlsx', type=Path)
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--dry-run', action='store_true')
-    mode.add_argument('--apply', action='store_true')
-    args = parser.parse_args()
-    try:
-        sys.exit(run(args.xlsx, args.apply))
-    except (ValueError, OSError) as exc:
-        print(f'ERROR: {exc}', file=sys.stderr)
-        sys.exit(1)

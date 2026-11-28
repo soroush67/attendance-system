@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card"><h2>تأیید حذف گزارش</h2>
+<p>فایل: <strong><bdi>{{ item.filename }}</bdi></strong></p><p>تعداد ترددهای ثبت‌شده از این فایل: <strong>{{ count }}</strong></p>
+<p class="muted">با حذف، رکوردهای همین فایل و گزارش‌های روزانه وابسته به آن بازسازی می‌شوند. کارکنان و ترددهای سایر فایل‌ها محفوظ می‌مانند. این عملیات برگشت خودکار ندارد؛ قبل از حذف از دیتابیس بکاپ داشته باشید.</p>
+<form method="post" action="/imports/{{ item.id }}/delete" class="actions"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger">بله، حذف شود</button><a href="/imports" class="btn outline">انصراف</a></form></div>
+{% endblock %}

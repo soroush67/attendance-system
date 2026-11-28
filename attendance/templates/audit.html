@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card table-wrap"><table><thead><tr><th>کاربر</th><th>رویداد</th><th>جزئیات</th><th>زمان</th></tr></thead><tbody>
+{% for actor, event, details, at in rows %}<tr><td><bdi>{{ actor }}</bdi></td><td><bdi>{{ event }}</bdi></td><td><bdi>{{ details }}</bdi></td><td><bdi>{{ at }}</bdi></td></tr>
+{% else %}<tr><td colspan="4" class="muted">رویدادی ثبت نشده است.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

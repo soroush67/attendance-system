@@ -1,0 +1,4 @@
+{% extends 'base.html' %}
+{% macro box() %}<div class="card login"><h1>خطا {{ code }}</h1><p>{{ detail }}</p><a class="btn outline" href="/">بازگشت</a></div>{% endmacro %}
+{% block bare %}{{ box() }}{% endblock %}
+{% block content %}{{ box() }}{% endblock %}

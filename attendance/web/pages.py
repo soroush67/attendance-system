@@ -15,12 +15,11 @@ from attendance.models import (ROLES, AttendanceCorrection, Audit, Employee, Imp
 from attendance.security import (client_ip, hash_password, ip_blocked, is_locked, password_problem,
                                  record_failure, record_success, session_user, start_session, verify_password)
 from attendance.services.importer import IngestError, delete_import, ingest, punches_of_import
-from attendance.services.jalali import to_jalali
-from attendance.services.jalali import current_jalali_ym, jalali_month_name
+from attendance.services.jalali import current_jalali_ym, jalali_month_name, parse_jalali, to_jalali
 from attendance.services.reports import HEADERS, PERIODS, ReportError, ReportQuery, report_rows, to_xlsx
 from attendance.services.work_hours import (STATUS_ABSENT, STATUS_DEFICIT, STATUS_HOLIDAY,
                                             STATUS_LEAVE, STATUS_OVERTIME, STATUS_PRESENT,
-                                            month_grid)
+                                            get_settings as get_ws, month_grid, paired_duration_minutes)
 from attendance.web.deps import (ALL_ROLES, CAN_EXPORT, CAN_UPLOAD, audit, check_csrf, current_user, redirect,
                                  render, require)
 
@@ -497,6 +496,214 @@ def add_correction(
     db.commit()
     qs = urlencode({'year': year, 'month': month}) if year else ''
     return redirect(f'/employees/{emp_id}/monthly?{qs}', 'اصلاح ثبت شد')
+
+
+# ------------------------------------------------------------------ attendance management
+
+@router.get('/attendance')
+def attendance_page(
+    request: Request,
+    day: str = '',
+    view_filter: str = '',          # absent | leave | incomplete
+    user: User = Depends(require(*ALL_ROLES)),
+    db: Session = Depends(get_db),
+):
+    from datetime import date as _date, timedelta as _td
+    from attendance.services.jalali import parse_jalali
+
+    tz = get_settings().timezone
+
+    # تاریخ انتخاب‌شده (پیش‌فرض: امروز شمسی)
+    if not day:
+        day = to_jalali(_date.today())
+
+    try:
+        greg_day = parse_jalali(day)
+    except ValueError:
+        greg_day = _date.today()
+        day = to_jalali(greg_day)
+
+    day_iso = greg_day.isoformat()
+
+    # همه کارمندان فعال
+    employees = db.scalars(select(Employee).where(Employee.status == 'active').order_by(Employee.name)).all()
+    emp_by_id = {e.id: e for e in employees}
+    emp_by_code = {e.device_id: e for e in employees}
+
+    # پانچ‌های این روز
+    from attendance.services.work_hours import paired_duration_minutes
+    day_start = datetime(greg_day.year, greg_day.month, greg_day.day, tzinfo=tz)
+    day_end   = day_start + _td(days=1)
+    logs = db.scalars(
+        select(Log).where(Log.occurred_at >= day_start, Log.occurred_at < day_end).order_by(Log.occurred_at)
+    ).all()
+
+    punches_by_code: dict[str, list[datetime]] = {}
+    for log in logs:
+        punches_by_code.setdefault(log.device_id, []).append(log.occurred_at)
+
+    # مرخصی‌های این روز
+    leave_rows = db.scalars(select(LeaveDay).where(LeaveDay.local_day == day)).all()
+    leave_emp_ids = {r.employee_id for r in leave_rows}
+
+    # اصلاح‌های این روز
+    corr_rows = db.scalars(
+        select(AttendanceCorrection).where(AttendanceCorrection.local_day == day)
+    ).all()
+    corr_by_emp: dict[int, list[AttendanceCorrection]] = {}
+    for c in corr_rows:
+        corr_by_emp.setdefault(c.employee_id, []).append(c)
+
+    ws = get_ws(db)
+
+    rows = []
+    for emp in employees:
+        on_leave = emp.id in leave_emp_ids
+        base_punches = punches_by_code.get(emp.device_id, [])
+        # اضافه کردن زمان اصلاح‌ها
+        extra = []
+        for c in corr_by_emp.get(emp.id, []):
+            h, m, s = (int(x) for x in c.punch_time.split(':'))
+            extra.append(datetime(greg_day.year, greg_day.month, greg_day.day, h, m, s, tzinfo=tz))
+        all_times = sorted(base_punches + extra)
+        worked = paired_duration_minutes(all_times) if not on_leave else None
+        first = all_times[0].astimezone(tz).strftime('%H:%M') if all_times else None
+        last  = all_times[-1].astimezone(tz).strftime('%H:%M') if len(all_times) > 1 else None
+        punch_count = len(all_times)
+
+        if on_leave:
+            status = STATUS_LEAVE
+        elif punch_count == 0:
+            status = STATUS_ABSENT
+        elif worked is not None and worked < ws.standard_hours * 60:
+            status = STATUS_DEFICIT
+        else:
+            status = 'حاضر'
+
+        rows.append({
+            'emp': emp, 'on_leave': on_leave,
+            'first': first, 'last': last,
+            'punch_count': punch_count,
+            'worked': worked,
+            'status': status,
+        })
+
+    # فیلتر
+    if view_filter == 'absent':
+        rows = [r for r in rows if r['status'] == STATUS_ABSENT]
+    elif view_filter == 'leave':
+        rows = [r for r in rows if r['status'] == STATUS_LEAVE]
+    elif view_filter == 'incomplete':
+        rows = [r for r in rows if r['punch_count'] % 2 != 0 and r['punch_count'] > 0]
+
+    # روز قبل / بعد
+    prev_day = to_jalali(greg_day - _td(days=1))
+    next_day = to_jalali(greg_day + _td(days=1))
+
+    return render(request, 'attendance.html', 'مدیریت تردد', 'attendance',
+                  rows=rows, day=day, prev_day=prev_day, next_day=next_day,
+                  view_filter=view_filter,
+                  STATUS_ABSENT=STATUS_ABSENT, STATUS_LEAVE=STATUS_LEAVE, STATUS_DEFICIT=STATUS_DEFICIT)
+
+
+@router.post('/attendance/leave')
+def attendance_leave(
+    request: Request,
+    employee_id: int = Form(0), local_day: str = Form(''),
+    leave_type: str = Form('مرخصی'), csrf_token: str = Form(''),
+    user: User = Depends(require('operator')),
+    db: Session = Depends(get_db),
+):
+    check_csrf(request, csrf_token)
+    emp = db.get(Employee, employee_id)
+    if not emp:
+        raise HTTPException(404)
+    existing = db.scalar(
+        select(LeaveDay).where(LeaveDay.employee_id == employee_id, LeaveDay.local_day == local_day)
+    )
+    if existing:
+        db.delete(existing)
+        audit(db, user.username, 'leave_remove', f'emp={employee_id} day={local_day}')
+        msg = 'مرخصی حذف شد'
+    else:
+        db.add(LeaveDay(employee_id=employee_id, local_day=local_day,
+                        leave_type=leave_type, actor_id=user.id))
+        audit(db, user.username, 'leave_add', f'emp={employee_id} day={local_day}')
+        msg = 'مرخصی ثبت شد'
+    db.commit()
+    return redirect(f'/attendance?day={local_day}', msg)
+
+
+@router.post('/attendance/correction')
+def attendance_correction(
+    request: Request,
+    employee_id: int = Form(0), local_day: str = Form(''),
+    punch_time: str = Form(''), punch_type: str = Form('in'),
+    reason: str = Form(''), csrf_token: str = Form(''),
+    user: User = Depends(require('operator')),
+    db: Session = Depends(get_db),
+):
+    check_csrf(request, csrf_token)
+    import re as _re
+    emp = db.get(Employee, employee_id)
+    if not emp:
+        raise HTTPException(404)
+    if not _re.fullmatch(r'\d{2}:\d{2}(:\d{2})?', punch_time.strip()):
+        return redirect(f'/attendance?day={local_day}', 'فرمت ساعت نامعتبر است', error=True)
+    pt = punch_time.strip()
+    if len(pt) == 5:
+        pt += ':00'
+    db.add(AttendanceCorrection(employee_id=employee_id, actor_id=user.id,
+                                local_day=local_day, punch_time=pt,
+                                punch_type=punch_type, reason=reason))
+    audit(db, user.username, 'correction_add',
+          f'emp={employee_id} day={local_day} {punch_type}={pt}')
+    db.commit()
+    return redirect(f'/attendance?day={local_day}', 'اصلاح ثبت شد')
+
+
+@router.post('/attendance/manual')
+def attendance_manual(
+    request: Request,
+    employee_id: int = Form(0), local_day: str = Form(''),
+    punch_time: str = Form(''), csrf_token: str = Form(''),
+    user: User = Depends(require('operator')),
+    db: Session = Depends(get_db),
+):
+    """ثبت دستی یک پانچ جدید (import مجازی می‌سازد)."""
+    check_csrf(request, csrf_token)
+    import re as _re, secrets as _sec
+    emp = db.get(Employee, employee_id)
+    if not emp:
+        raise HTTPException(404)
+    if not _re.fullmatch(r'\d{2}:\d{2}(:\d{2})?', punch_time.strip()):
+        return redirect(f'/attendance?day={local_day}', 'فرمت ساعت نامعتبر است', error=True)
+    pt = punch_time.strip()
+    if len(pt) == 5:
+        pt += ':00'
+    try:
+        greg = parse_jalali(local_day)
+    except ValueError:
+        return redirect(f'/attendance?day={local_day}', 'تاریخ نامعتبر است', error=True)
+
+    tz = get_settings().timezone
+    h, m, s = (int(x) for x in pt.split(':'))
+    stamp = datetime(greg.year, greg.month, greg.day, h, m, s, tzinfo=tz)
+
+    # import مجازی برای NOT NULL source_import_id
+    manual_imp = Import(
+        filename=f'manual_{emp.device_id}_{local_day}',
+        digest=_sec.token_hex(16),
+        uploader_id=user.id,
+        accepted=1, rejected=0,
+        note='ثبت دستی',
+    )
+    db.add(manual_imp)
+    db.flush()
+    db.add(Log(device_id=emp.device_id, occurred_at=stamp, source_import_id=manual_imp.id))
+    audit(db, user.username, 'manual_punch', f'emp={employee_id} day={local_day} time={pt}')
+    db.commit()
+    return redirect(f'/attendance?day={local_day}', 'پانچ دستی ثبت شد')
 
 
 @router.get('/audit')

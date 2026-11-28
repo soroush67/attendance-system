@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#111c35">
+<title>{{ title }} | سامانه حضور و غیاب</title>
+<script src="/static/theme-init.js"></script>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="/static/logo.png">
+</head>
+<body>
+{% from '_macros.html' import theme_toggle, flash with context %}
+{% if user and not (user.must_change_password and section == 'account') %}
+<div class="shell">
+  <aside>
+    <div class="company-logo-wrap"><img class="company-logo" alt="بیمه سامان" src="/static/logo.png"></div>
+    <div class="brand"><div class="brand-mark" aria-hidden="true">◈</div><div>سامانه حضور و غیاب<small>مدیریت هوشمند تردد · نسخه {{ version }}</small></div></div>
+    <div class="nav-label">منوی اصلی</div>
+    <nav aria-label="منوی اصلی">
+      {% set items = [('dashboard','/','نمای کلی','◈'),('employees','/employees','کارکنان','♙'),('attendance','/attendance','مدیریت تردد','⊞'),('imports','/imports','آپلود فایل','⇧'),('reports','/reports','گزارش تردد','▤')] %}
+      {% if user.role == 'admin' %}{% set items = items + [('users','/users','کاربران و دسترسی‌ها','♧'),('audit','/audit','تاریخچه فعالیت','◷')] %}{% endif %}
+      {% for key, url, label, icon in items %}<a class="{{ 'selected' if key == section else '' }}" href="{{ url }}" {% if key == section %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ icon }}</span><span>{{ label }}</span></a>{% endfor %}
+    </nav>
+    <div class="side-footer">سامانه مدیریت تردد کارکنان</div>
+  </aside>
+  <main>
+    <header class="top">
+      <div><div class="eyebrow">پنل مدیریت / {{ title }}</div><h1>{{ title }}</h1><span class="muted">مدیریت یکپارچه حضور و غیاب کارکنان</span></div>
+      <div class="top-actions">
+        {{ theme_toggle() }}
+        <a class="user-badge" href="/account/password" title="تغییر گذرواژه"><span class="avatar" aria-hidden="true">{{ user.username[:1]|upper }}</span><bdi>{{ user.username }}</bdi></a>
+        <form class="logout-form" method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="outline">خروج</button></form>
+      </div>
+    </header>
+    {{ flash() }}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% else %}
+<div class="login-screen">{{ theme_toggle() }}
+  <div class="login-content">
+    <div class="login-logo"><img alt="بیمه سامان" src="/static/logo.png"></div>
+    {% block bare %}{% endblock %}
+  </div>
+</div>
+{% endif %}
+<script src="/static/theme.js"></script>
+</body>
+</html>
