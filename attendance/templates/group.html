@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+{% block content %}
+
+{% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h2>ثبت گروهی</h2>
+  <p class="muted">ابتدا کارمندان مورد نظر را انتخاب کنید، سپس عملیات مرخصی یا پانچ دستی را اعمال کنید.</p>
+
+  {# جدول انتخاب کارمند #}
+  <div class="group-toolbar">
+    <input type="text" id="emp-search" placeholder="جست‌وجوی نام یا کد…" oninput="filterEmps(this.value)">
+    <label class="select-all-label">
+      <input type="checkbox" id="select-all" onchange="toggleAll(this)"> انتخاب همه
+    </label>
+    <span id="sel-count" class="muted">۰ نفر انتخاب شده</span>
+  </div>
+
+  <div class="table-wrap"><table id="emp-table">
+    <thead><tr><th style="width:36px"></th><th>نام</th><th>کد دستگاه</th></tr></thead>
+    <tbody>
+    {% for emp in employees %}
+    <tr data-name="{{ emp.name }}" data-code="{{ emp.device_id }}">
+      <td><input type="checkbox" class="emp-cb" value="{{ emp.id }}" onchange="updateCount()"></td>
+      <td>{{ emp.name }}</td>
+      <td><bdi>{{ emp.device_id }}</bdi></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="muted">کارمند فعالی یافت نشد.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+{# کارت مرخصی گروهی #}
+<div class="card">
+  <h3>ثبت مرخصی گروهی</h3>
+  <form method="post" action="/group/leave" id="leave-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div id="leave-ids"></div>
+    <div class="fields">
+      <div>
+        <label>از تاریخ (شمسی)</label>
+        <input type="text" name="local_day_from" value="{{ today }}" maxlength="10" placeholder="۱۴۰۵/۰۹/۰۷" required>
+      </div>
+      <div>
+        <label>تا تاریخ (اختیاری، اگر یک روز است خالی بگذارید)</label>
+        <input type="text" name="local_day_to" maxlength="10" placeholder="{{ today }}">
+      </div>
+      <div>
+        <label>نوع مرخصی</label>
+        <select name="leave_type">
+          <option>مرخصی</option>
+          <option>مرخصی استحقاقی</option>
+          <option>مرخصی استعلاجی</option>
+          <option>مرخصی ساعتی</option>
+          <option>ماموریت</option>
+        </select>
+      </div>
+      <div class="form-submit">
+        <button type="submit" class="btn" onclick="return injectIds('leave-ids','leave-form')">ثبت مرخصی برای انتخاب‌شده‌ها</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{# کارت پانچ دستی گروهی #}
+<div class="card">
+  <h3>ثبت پانچ دستی گروهی</h3>
+  <form method="post" action="/group/punch" id="punch-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div id="punch-ids"></div>
+    <div class="fields">
+      <div>
+        <label>تاریخ (شمسی)</label>
+        <input type="text" name="local_day" value="{{ today }}" maxlength="10" placeholder="۱۴۰۵/۰۹/۰۷" required>
+      </div>
+      <div>
+        <label>ساعت ورود (HH:MM)</label>
+        <input type="text" name="punch_time_in" maxlength="5" placeholder="۰۸:۰۰">
+      </div>
+      <div>
+        <label>ساعت خروج (HH:MM)</label>
+        <input type="text" name="punch_time_out" maxlength="5" placeholder="۱۷:۰۰">
+      </div>
+      <div class="form-submit">
+        <button type="submit" class="btn" onclick="return injectIds('punch-ids','punch-form')">ثبت پانچ برای انتخاب‌شده‌ها</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<style>
+.group-toolbar { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:.75rem; }
+.group-toolbar input[type=text] { max-width:220px; }
+.select-all-label { display:flex; align-items:center; gap:.4rem; cursor:pointer; white-space:nowrap; }
+.form-submit { align-self:flex-end; }
+#emp-table tbody tr.hidden { display:none; }
+</style>
+
+<script>
+function getChecked() {
+  return [...document.querySelectorAll('.emp-cb:checked')].map(cb => cb.value);
+}
+
+function updateCount() {
+  const n = getChecked().length;
+  document.getElementById('sel-count').textContent = n + ' نفر انتخاب شده';
+  const all = document.querySelectorAll('.emp-cb');
+  const checked = getChecked().length;
+  document.getElementById('select-all').indeterminate = checked > 0 && checked < all.length;
+  document.getElementById('select-all').checked = checked === all.length;
+}
+
+function toggleAll(cb) {
+  document.querySelectorAll('.emp-cb:not([style*="display:none"])').forEach(el => {
+    const row = el.closest('tr');
+    if (!row.classList.contains('hidden')) el.checked = cb.checked;
+  });
+  updateCount();
+}
+
+function filterEmps(q) {
+  q = q.trim().toLowerCase();
+  document.querySelectorAll('#emp-table tbody tr[data-name]').forEach(tr => {
+    const match = !q || tr.dataset.name.toLowerCase().includes(q) || tr.dataset.code.toLowerCase().includes(q);
+    tr.classList.toggle('hidden', !match);
+  });
+}
+
+function injectIds(containerId, formId) {
+  const ids = getChecked();
+  if (!ids.length) { alert('هیچ کارمندی انتخاب نشده است'); return false; }
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  ids.forEach(id => {
+    const inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'employee_ids'; inp.value = id;
+    container.appendChild(inp);
+  });
+  return true;
+}
+</script>
+{% endblock %}

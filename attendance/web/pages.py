@@ -498,6 +498,113 @@ def add_correction(
     return redirect(f'/employees/{emp_id}/monthly?{qs}', 'اصلاح ثبت شد')
 
 
+# ------------------------------------------------------------------ group registration
+
+@router.get('/group')
+def group_page(request: Request, user: User = Depends(require('operator')), db: Session = Depends(get_db)):
+    from attendance.services.jalali import to_jalali
+    from datetime import date as _date
+    employees = db.scalars(select(Employee).where(Employee.status == 'active').order_by(Employee.name)).all()
+    today = to_jalali(_date.today())
+    return render(request, 'group.html', 'ثبت گروهی', 'group', employees=employees, today=today)
+
+
+@router.post('/group/leave')
+def group_leave(
+    request: Request,
+    employee_ids: list[int] = Form(default=[]),
+    local_day_from: str = Form(''), local_day_to: str = Form(''),
+    leave_type: str = Form('مرخصی'), csrf_token: str = Form(''),
+    user: User = Depends(require('operator')), db: Session = Depends(get_db),
+):
+    check_csrf(request, csrf_token)
+    from attendance.services.jalali import parse_jalali
+    import jdatetime as _jdt
+    if not employee_ids:
+        return redirect('/group', 'حداقل یک کارمند انتخاب کنید', error=True)
+    try:
+        d_from = parse_jalali(local_day_from)
+        d_to = parse_jalali(local_day_to) if local_day_to else d_from
+    except ValueError:
+        return redirect('/group', 'تاریخ نامعتبر است', error=True)
+    if d_to < d_from:
+        d_from, d_to = d_to, d_from
+
+    from datetime import timedelta as _td
+    days = []
+    cur = d_from
+    while cur <= d_to:
+        days.append(to_jalali(cur))
+        cur += _td(days=1)
+
+    added = 0
+    for emp_id in employee_ids:
+        for day_str in days:
+            exists = db.scalar(select(LeaveDay).where(
+                LeaveDay.employee_id == emp_id, LeaveDay.local_day == day_str))
+            if not exists:
+                db.add(LeaveDay(employee_id=emp_id, local_day=day_str,
+                                leave_type=leave_type, actor_id=user.id))
+                added += 1
+    audit(db, user.username, 'group_leave',
+          f'emps={employee_ids} days={local_day_from}..{local_day_to or local_day_from} type={leave_type}')
+    db.commit()
+    return redirect('/group', f'{added} مرخصی ثبت شد')
+
+
+@router.post('/group/punch')
+def group_punch(
+    request: Request,
+    employee_ids: list[int] = Form(default=[]),
+    local_day: str = Form(''),
+    punch_time_in: str = Form(''), punch_time_out: str = Form(''),
+    csrf_token: str = Form(''),
+    user: User = Depends(require('operator')), db: Session = Depends(get_db),
+):
+    check_csrf(request, csrf_token)
+    import re as _re, secrets as _sec
+    from attendance.services.jalali import parse_jalali
+    if not employee_ids:
+        return redirect('/group', 'حداقل یک کارمند انتخاب کنید', error=True)
+    if not punch_time_in and not punch_time_out:
+        return redirect('/group', 'حداقل یک ساعت (ورود یا خروج) وارد کنید', error=True)
+    for pt in [punch_time_in, punch_time_out]:
+        if pt and not _re.fullmatch(r'\d{2}:\d{2}(:\d{2})?', pt.strip()):
+            return redirect('/group', f'فرمت ساعت نامعتبر: {pt}', error=True)
+    try:
+        greg = parse_jalali(local_day)
+    except ValueError:
+        return redirect('/group', 'تاریخ نامعتبر است', error=True)
+
+    tz = get_settings().timezone
+    added = 0
+    for emp_id in employee_ids:
+        emp = db.get(Employee, emp_id)
+        if not emp:
+            continue
+        for pt_str, punch_type in [(punch_time_in, 'in'), (punch_time_out, 'out')]:
+            if not pt_str:
+                continue
+            pt = pt_str.strip()
+            if len(pt) == 5:
+                pt += ':00'
+            h, m, s = (int(x) for x in pt.split(':'))
+            stamp = datetime(greg.year, greg.month, greg.day, h, m, s, tzinfo=tz)
+            manual_imp = Import(
+                filename=f'group_{emp.device_id}_{local_day}_{punch_type}',
+                digest=_sec.token_hex(16),
+                uploader_id=user.id, accepted=1, rejected=0, note='ثبت گروهی',
+            )
+            db.add(manual_imp)
+            db.flush()
+            db.add(Log(device_id=emp.device_id, occurred_at=stamp, source_import_id=manual_imp.id))
+            added += 1
+    audit(db, user.username, 'group_punch',
+          f'emps={employee_ids} day={local_day} in={punch_time_in} out={punch_time_out}')
+    db.commit()
+    return redirect('/group', f'{added} پانچ گروهی ثبت شد')
+
+
 # ------------------------------------------------------------------ attendance management
 
 @router.get('/attendance')

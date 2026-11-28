@@ -20,7 +20,7 @@
     <div class="brand"><div class="brand-mark" aria-hidden="true">◈</div><div>سامانه حضور و غیاب<small>مدیریت هوشمند تردد · نسخه {{ version }}</small></div></div>
     <div class="nav-label">منوی اصلی</div>
     <nav aria-label="منوی اصلی">
-      {% set nav_items = [('dashboard','/','نمای کلی','◈'),('employees','/employees','کارکنان','♙'),('attendance','/attendance','مدیریت تردد','⊞'),('imports','/imports','آپلود فایل','⇧'),('reports','/reports','گزارش تردد','▤')] %}
+      {% set nav_items = [('dashboard','/','نمای کلی','◈'),('employees','/employees','کارکنان','♙'),('attendance','/attendance','مدیریت تردد','⊞'),('group','/group','ثبت گروهی','▦'),('imports','/imports','آپلود فایل','⇧'),('reports','/reports','گزارش تردد','▤')] %}
       {% if user.role == 'admin' %}{% set nav_items = nav_items + [('users','/users','کاربران و دسترسی‌ها','♧'),('audit','/audit','تاریخچه فعالیت','◷')] %}{% endif %}
       {% for key, url, label, icon in nav_items %}<a class="{{ 'selected' if key == section else '' }}" href="{{ url }}" {% if key == section %}aria-current="page"{% endif %}><span class="nav-icon" aria-hidden="true">{{ icon }}</span><span>{{ label }}</span></a>{% endfor %}
     </nav>
