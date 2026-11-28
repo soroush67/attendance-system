@@ -339,7 +339,7 @@ def download(request: Request, start_jalali: str = '', end_jalali: str = '', rep
 def users_page(request: Request, user: User = Depends(require('admin')), db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     return render(request, 'users.html', 'کاربران و دسترسی‌ها', 'users', users=db.scalars(select(User).order_by(User.id)).all(),
-                  now=now, min_length=get_settings().password_min_length)
+                  now=now, min_length=get_settings().password_min_length, ROLES=ROLES)
 
 
 @router.post('/users')
